@@ -559,7 +559,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 timeout=60.0
             )
 
-            await asyncio.sleep(500)
+            await asyncio.sleep(0.5)
 
             logger.info(f"Worker ID: {params.worker_id} [Success] 完成关键词: {keyword}")
 
