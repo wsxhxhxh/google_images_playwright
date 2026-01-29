@@ -362,7 +362,7 @@ def make_response_handler(task_id, params, aggregated_data):
 
             try:
                 body = await response.text()
-                await save_text(f"./logs/html_temp_{len(os.listdir('./logs')) + 1}.txt", body)
+                # await save_text(f"./logs/html_temp_{len(os.listdir('./logs')) + 1}.txt", body)
 
                 result = await demo_with_real_data(params.worker_id, body)
 
