@@ -22,6 +22,7 @@ class SearchTaskParams:
     language_code: str
     usenum: int
     desimagenum: int
+    languageid: int
     jxycategory_id: str
     proxies: Dict[str, str]
     collect_platform_type: List[str]
@@ -39,6 +40,7 @@ async def worker(worker_id: int):
                 desimagenum = work_info.get("image_count")
                 task_name = work_info.get("task_name")
                 collect_platform_type = work_info.get("collect_platform_type")
+                language_id = work_info.get("language_id")
                 language_code = Config.LANGUAGE_CODE_MAP.get(work_info.get("language_code"), "en-US")
                 logger.info(f"Worker ID: {worker_id} get work info: {task_name}")
 
@@ -57,6 +59,7 @@ async def worker(worker_id: int):
                     desimagenum=desimagenum,
                     jxycategory_id=jxycategory_id,
                     proxies=proxies,
+                    languageid=language_id,
                     collect_platform_type=collect_platform_type,
                 )
 
