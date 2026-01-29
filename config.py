@@ -73,6 +73,8 @@ class Config:
         }
     ]
 
+
+
     # 重试策略
     MAX_RETRIES = 3  # 最大重试次数
     RETRY_DELAY = 5  # 重试延迟(秒)
@@ -160,10 +162,11 @@ class Config:
         "tr": "tr-TR", "tr-TR": "tr-TR",
         "ro": "ro-RO", "ro-RO": "ro-RO",
     }
+    IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".avif")
 
     PROXY_MAX_RETRIES = 3
     PROXY_KEY = "e038ffb988344353c4765d252c9cbd39"
     COOLDOWN_MIN = 300  # 5 分钟
     COOLDOWN_MAX = 600  # 10 分钟
 
-    TASK_NUM = 1
+    TASK_NUM = 20
