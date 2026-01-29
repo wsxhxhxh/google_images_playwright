@@ -722,6 +722,7 @@ async def test():
         language_code = "en-US"
         usenum = 20
         desimagenum = 20
+        languageid = 3
         jxycategory_id = 19
         proxies = {"server": "socks5://172.96.89.145:1080"}
         collect_platform_type = None

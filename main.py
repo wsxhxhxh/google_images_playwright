@@ -57,9 +57,9 @@ async def worker(worker_id: int):
                     language_code=language_code,
                     usenum=usenum,
                     desimagenum=desimagenum,
+                    languageid=language_id,
                     jxycategory_id=jxycategory_id,
                     proxies=proxies,
-                    languageid=language_id,
                     collect_platform_type=collect_platform_type,
                 )
 
