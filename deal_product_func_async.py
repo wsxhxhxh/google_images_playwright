@@ -122,7 +122,7 @@ def extract_number(text):
     return 0
 
 
-async def deal_info_by_async(productlist, usenum, desimagenum):
+async def deal_info_by_async(productlist, params):
     """
     异步处理产品信息
 
@@ -152,14 +152,38 @@ async def deal_info_by_async(productlist, usenum, desimagenum):
 
     # 第二步：处理产品数据
     for product in productlist:
-        if ok_product >= usenum:
+        if ok_product >= params.usenum:
             continue
 
-        description = json.dumps(select_random_elements(descriptions, desimagenum))
+        description = json.dumps(select_random_elements(descriptions, params.desimagenum))
         link = get_dic(product, "link")
         info = deal_product_info(get_dic(product, "info"), link, get_dic(product, "image"))
 
-        if "other" not in info:
+        if params.collect_platform_type:
+            cpts = params.collect_platform_type
+            if type(cpts) == str:
+                cpts = json.loads(cpts)
+
+            for cpt in cpts:
+                if cpt in info:
+                    ok_product += 1
+                    new_data = {
+                        "parent": get_dic(product, "parent"),
+                        "index": get_dic(product, "index"),
+                        "name1": get_dic(product, "word"),
+                        "name": deal_product_name(get_dic(product, "word")),
+                        "shortdescription": deal_product_info_desc(get_dic(product, "info"), "desc"),
+                        "description": description,
+                        "domain": get_dic(product, "domain"),
+                        "link": link,
+                        "image": get_dic(product, "image"),
+                        "info": info,
+                    }
+                    datas.append(new_data)
+                    break
+
+
+        elif "other" not in info:
             ok_product += 1
             new_data = {
                 "parent": get_dic(product, "parent"),

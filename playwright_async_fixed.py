@@ -577,7 +577,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 unique_related_items = list(set(aggregated_data['related_items'])) if aggregated_data['related_items'] else []
 
                 # 统一处理所有数据
-                products = await deal_info_by_async(aggregated_data['new_datas'], params.usenum, params.desimagenum)
+                products = await deal_info_by_async(aggregated_data['new_datas'], params)
                 shopify_products = await deal_shopify_product_info_async(params, products)
 
                 google_item = {
