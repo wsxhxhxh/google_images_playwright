@@ -573,10 +573,8 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
 
                 # 去重处理（如果需要）
                 unique_domains = list(set(aggregated_data['domains']))
-                unique_related_search = list(set(aggregated_data['related_search']))
-                unique_related_items = list(
-                    {item['link']: item for item in aggregated_data['related_items']}.values()) if aggregated_data[
-                    'related_items'] else []
+                unique_related_search = list(set(aggregated_data['related_search'])) if aggregated_data['related_search'] else []
+                unique_related_items = list(set(aggregated_data['related_items'])) if aggregated_data['related_items'] else []
 
                 # 统一处理所有数据
                 products = await deal_info_by_async(aggregated_data['new_datas'], params.usenum, params.desimagenum)
