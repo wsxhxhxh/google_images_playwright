@@ -188,7 +188,8 @@ async def deal_info_by_async(productlist, params):
                     break
 
 
-        elif "other" not in info:
+        # elif "other" not in info:
+        else:
             ok_product += 1
             new_data = {
                 "parent": get_dic(product, "parent"),
@@ -203,9 +204,9 @@ async def deal_info_by_async(productlist, params):
                 "info": info,
             }
             datas.append(new_data)
-        else:
-            other_list.append(info)
-            other_num += 1
+        # else:
+        #     other_list.append(info)
+        #     other_num += 1
     logger.info(f"other platform product num: {other_num} {other_list[:3]}")
     return datas
 
