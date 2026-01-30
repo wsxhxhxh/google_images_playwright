@@ -151,8 +151,6 @@ async def deal_info_by_async(productlist, params):
         descriptions.append(description)
 
     ok_product = 0
-    other_num = 0
-    other_list = []
 
     # 第二步：处理产品数据
     for product in productlist:
@@ -207,7 +205,6 @@ async def deal_info_by_async(productlist, params):
         # else:
         #     other_list.append(info)
         #     other_num += 1
-    logger.info(f"other platform product num: {other_num} {other_list[:3]}")
     return datas
 
 
