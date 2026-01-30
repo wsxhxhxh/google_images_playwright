@@ -336,6 +336,32 @@ class PlaywrightBrowser:
         """)
 
 
+class ManagedPage:
+    """页面管理器，确保页面总是被关闭"""
+
+    def __init__(self, browser, keyword):
+        self.browser = browser
+        self.keyword = keyword
+        self.page = None
+
+    async def __aenter__(self):
+        self.page = await asyncio.wait_for(
+            self.browser.create_new_page(),
+            timeout=30.0
+        )
+        logger.info(f"[{self.keyword}] 页面创建成功")
+        return self.page
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.page:
+            try:
+                self.page.remove_all_listeners('response')
+                await asyncio.wait_for(self.page.close(), timeout=5.0)
+                logger.info(f"[{self.keyword}] 页面已关闭")
+            except Exception as e:
+                logger.error(f"[{self.keyword}] 关闭页面失败: {e}")
+
+
 async def human_mouse_move(page, start, end, steps=30):
     for i in range(steps):
         t = i / steps
@@ -556,129 +582,84 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
     }
 
     for attempt in range(max_retries):
-        page = None
+
 
         try:
-            # 创建新页面
-            task = create_child_task(browser.create_new_page())
-            page = await asyncio.wait_for(task, timeout=30.0)
-            # 传入共享的数据收集器
-            response_handler = make_response_handler(keyid, params, aggregated_data)
-            page.on('response', response_handler)
+            async with ManagedPage(browser, keyword) as page:
 
-            # 打开 Google 图片搜索
-            logger.info(
-                f"[{keyword}] 正在打开 Google 图片搜索页面 (尝试 {attempt + 1}/{max_retries})")
+                # 注册响应处理器
+                response_handler = make_response_handler(keyid, params, aggregated_data)
+                page.on('response', response_handler)
 
-            task = create_child_task(
-                page.goto(
-                    f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl",
-                    wait_until="domcontentloaded",
-                    timeout=30000
+                # 打开 Google 图片搜索
+                logger.info(f"[{keyword}] 正在打开 Google 图片搜索页面 (尝试 {attempt + 1}/{max_retries})")
+
+                task = create_child_task(
+                    page.goto(
+                        f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl",
+                        wait_until="domcontentloaded",
+                        timeout=30000
+                    )
                 )
-            )
-            await asyncio.wait_for(task, timeout=40.0)
+                await asyncio.wait_for(task, timeout=40.0)
 
-            # 搜索关键词
-            logger.info(f"[{keyword}] 开始输入关键词")
-            task = create_child_task(human_type_and_submit(page, keyword_item))
-            await asyncio.wait_for(task, timeout=20.0)
+                # 搜索关键词
+                logger.info(f"[{keyword}] 开始输入关键词")
+                task = create_child_task(human_type_and_submit(page, keyword_item))
+                await asyncio.wait_for(task, timeout=20.0)
 
-            # 平滑滚动
-            logger.info(f"[{keyword}] 开始滚动页面")
-            task = create_child_task(human_scroll(page, 6))
-            await asyncio.wait_for(task, timeout=60.0)
+                # 平滑滚动
+                logger.info(f"[{keyword}] 开始滚动页面")
+                task = create_child_task(human_scroll(page, 6))
+                await asyncio.wait_for(task, timeout=60.0)
 
-            await asyncio.sleep(0.5)
+                await asyncio.sleep(0.5)
 
-            logger.info(f"[Success] 完成关键词: {keyword}")
+                logger.info(f"[Success] 完成关键词: {keyword}")
 
-            # 在循环结束后统一处理所有收集到的数据
-            if aggregated_data['new_datas']:
-                logger.info(f"[{keyword}] 开始处理聚合数据，共 {len(aggregated_data['new_datas'])} 条")
+                # 在循环结束后统一处理所有收集到的数据
+                if aggregated_data['new_datas']:
+                    logger.info(f"[{keyword}] 开始处理聚合数据，共 {len(aggregated_data['new_datas'])} 条")
 
-                # 去重处理（如果需要）
-                unique_domains = list(set(aggregated_data['domains']))
-                unique_related_search = list(set(aggregated_data['related_search'])) if aggregated_data['related_search'] else []
-                unique_related_items = list(set(aggregated_data['related_items'])) if aggregated_data['related_items'] else []
+                    # 去重处理（如果需要）
+                    unique_domains = list(set(aggregated_data['domains']))
+                    unique_related_search = list(set(aggregated_data['related_search'])) if aggregated_data['related_search'] else []
+                    unique_related_items = list(set(aggregated_data['related_items'])) if aggregated_data['related_items'] else []
 
-                # 统一处理所有数据
-                products = await deal_info_by_async(aggregated_data['new_datas'], params)
-                shopify_products = await deal_shopify_product_info_async(params, products)
+                    # 统一处理所有数据
+                    products = await deal_info_by_async(aggregated_data['new_datas'], params)
+                    shopify_products = await deal_shopify_product_info_async(params, products)
 
-                google_item = {
-                    'id': keyid,
-                    'use_proxy_ip': params.proxies.get("server"),
-                    'from': params.proxies.get("server").replace("socks5://", "").split(":")[0],
-                    'word': keyword,
-                    'script': "",
-                    'domains': json.dumps(unique_domains),
-                    'related': json.dumps(unique_related_search),
-                    'items': json.dumps(unique_related_items),
-                    'products': json.dumps(products)
-                }
+                    google_item = {
+                        'id': keyid,
+                        'use_proxy_ip': params.proxies.get("server"),
+                        'from': params.proxies.get("server").replace("socks5://", "").split(":")[0],
+                        'word': keyword,
+                        'script': "",
+                        'domains': json.dumps(unique_domains),
+                        'related': json.dumps(unique_related_search),
+                        'items': json.dumps(unique_related_items),
+                        'products': json.dumps(products)
+                    }
 
-                if products or shopify_products:
-                    async with aiohttp.ClientSession() as session:
-                        if products:
-                            await send_items_to_api(session, params, google_item)
-                        if shopify_products:
-                            await send_shopify_product_to_api(session, params, shopify_products)
+                    if products or shopify_products:
+                        async with aiohttp.ClientSession() as session:
+                            if products:
+                                await send_items_to_api(session, params, google_item)
+                            if shopify_products:
+                                await send_shopify_product_to_api(session, params, shopify_products)
 
-                logger.info(f"[{keyword}] 数据处理完成")
+                    logger.info(f"[{keyword}] 数据处理完成")
 
-            return True
-
-        except asyncio.TimeoutError:
-            logger.error(f"[{keyword}] 搜索超时 (尝试 {attempt + 1}/{max_retries})")
-            if page:
-                try:
-                    await page.close()
-                except:
-                    pass
-            if attempt < max_retries - 1:
-                await asyncio.sleep(3)
-            else:
-                logger.error(f"[{keyword}] 已达最大重试次数，跳过")
-                return False
-
-        except PlaywrightTimeout as e:
-            logger.error(
-                f"[{keyword}] Playwright 超时 (尝试 {attempt + 1}/{max_retries}): {e}")
-            if page:
-                try:
-                    await page.close()
-                except:
-                    pass
-            if attempt < max_retries - 1:
-                await asyncio.sleep(3)
-            else:
-                logger.error(f"[{keyword}] 已达最大重试次数，跳过")
-                return False
+                return True
 
         except Exception as e:
-            logger.exception(
-                f"[{keyword}] 搜索异常 (尝试 {attempt + 1}/{max_retries}): {e}")
-            if page:
-                try:
-                    await page.close()
-                except:
-                    pass
+            logger.exception(f"[{keyword}] 搜索异常 (尝试 {attempt + 1}/{max_retries}): {e}")
             if attempt < max_retries - 1:
                 await asyncio.sleep(3)
             else:
                 logger.error(f"[{keyword}] 已达最大重试次数，跳过")
                 return False
-
-        finally:
-            # 关闭页面
-            if page:
-                try:
-                    # 移除所有监听器
-                    page.remove_all_listeners('response')
-                    await page.close()
-                except Exception as e:
-                    logger.warning(f"关闭页面失败: {e}")
 
     return False
 
