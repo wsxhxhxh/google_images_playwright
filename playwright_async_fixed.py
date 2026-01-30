@@ -355,7 +355,6 @@ class ManagedPage:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.page:
             try:
-                self.page.remove_all_listeners('response')
                 await asyncio.wait_for(self.page.close(), timeout=5.0)
                 logger.info(f"[{self.keyword}] 页面已关闭")
             except Exception as e:
