@@ -26,6 +26,23 @@ async def block_images(route):
         await route.continue_()
 
 
+def create_child_task(coro, *, name=None, suffix=None):
+    parent = asyncio.current_task()
+
+    if parent:
+        parent_name = parent.get_name()
+    else:
+        parent_name = "Main"
+
+    if name:
+        task_name = name
+    elif suffix:
+        task_name = f"{parent_name}/{suffix}"
+    else:
+        task_name = parent_name
+
+    return asyncio.create_task(coro, name=task_name)
+
 async def save_text(path: str, content: str):
     async with aiofiles.open(path, mode="w", encoding="utf-8") as f:
         await f.write(content)
@@ -526,38 +543,33 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
     for attempt in range(max_retries):
         try:
             # 创建新页面
-            page = await asyncio.wait_for(
-                browser.create_new_page(),
-                timeout=30.0
-            )
+            task = create_child_task(browser.create_new_page())
+            page = await asyncio.wait_for(task, timeout=30.0)
             # 传入共享的数据收集器
             page.on('response', make_response_handler(keyid, params, aggregated_data))
 
             # 打开 Google 图片搜索
             logger.info(
                 f"[{keyword}] 正在打开 Google 图片搜索页面 (尝试 {attempt + 1}/{max_retries})")
-            await asyncio.wait_for(
+
+            task = create_child_task(
                 page.goto(
                     f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl",
                     wait_until="domcontentloaded",
                     timeout=30000
-                ),
-                timeout=40.0
+                )
             )
+            await asyncio.wait_for(task, timeout=40.0)
 
             # 搜索关键词
             logger.info(f"[{keyword}] 开始输入关键词")
-            await asyncio.wait_for(
-                human_type_and_submit(page, keyword_item),
-                timeout=20.0
-            )
+            task = create_child_task(human_type_and_submit(page, keyword_item))
+            await asyncio.wait_for(task, timeout=20.0)
 
             # 平滑滚动
             logger.info(f"[{keyword}] 开始滚动页面")
-            await asyncio.wait_for(
-                human_scroll(page, 6),
-                timeout=60.0
-            )
+            task = create_child_task(human_scroll(page, 6))
+            await asyncio.wait_for(task, timeout=60.0)
 
             await asyncio.sleep(0.5)
 
@@ -672,10 +684,8 @@ async def search_keyword_batch(params):
 
         # 初始化浏览器，带超时
         logger.info(f"初始化浏览器，代理: {params.proxies['server']}")
-        await asyncio.wait_for(
-            browser.initialize(),
-            timeout=60.0
-        )
+        task = create_child_task(browser.initialize())
+        await asyncio.wait_for(task, timeout=30.0)
 
         # 串行执行
         success_count = 0
