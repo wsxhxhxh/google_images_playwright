@@ -1,10 +1,20 @@
 
 import os
+import asyncio
 import logging
 from logging.handlers import TimedRotatingFileHandler
 
+class TaskNameFilter(logging.Filter):
+    def filter(self, record):
+        try:
+            task = asyncio.current_task()
+            record.task_name = task.get_name() if task else "Main"
+        except RuntimeError:
+            record.task_name = "Main"
+        return True
 
-formatter = logging.Formatter('"%(asctime)s [%(levelname)s] %(message)s"')
+
+formatter = logging.Formatter('"%(asctime)s [%(levelname)s] [%(task_name)s] %(message)s"')
 directory_path = os.path.dirname(os.path.abspath(__file__))
 file_handler = TimedRotatingFileHandler(
     filename=os.path.join(directory_path, 'logs/crawl_google_us_async.log'),
@@ -18,6 +28,7 @@ stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(formatter)
 
 logger = logging.getLogger()
+logger.addFilter(TaskNameFilter())
 logger.setLevel(logging.INFO)
 logger.addHandler(file_handler)
 logger.addHandler(stream_handler)

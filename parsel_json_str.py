@@ -170,7 +170,7 @@ class AsyncRecursiveJSONExtractor:
         return None, start
 
 
-async def demo_with_real_data(worker_id, real_data):
+async def demo_with_real_data(real_data):
     """使用真实的Google搜索数据演示 (异步版本)"""
 
     extractor = AsyncRecursiveJSONExtractor()
@@ -195,7 +195,7 @@ async def demo_with_real_data(worker_id, real_data):
     result_list = [res for res in parsed_results if res]
     # res = dedupe_by_id(result_list)
     res = dedupe_by_image(result_list)
-    logger.info(f"[WID {worker_id:2}] 找到: {len(res)}个产品 {res[:3]}...")
+    logger.info(f"找到: {len(res)}个产品 {res[:3]}...")
     return res
 
 
@@ -373,7 +373,7 @@ async def main():
     async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
         text = await f.read()
 
-    res = await demo_with_real_data("1", text)
+    res = await demo_with_real_data(text)
     # for r in res:
     #     logger.info(r)
 
