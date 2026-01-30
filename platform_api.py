@@ -214,17 +214,17 @@ async def send_shopify_product_to_api(session, params, item):
         async with session.post(api_url, json=item, ssl=False) as response:
             text = await response.text()
             if response.status == 200:
-                logger.info(f"[WID {params.worker_id:2}] send items result: {text}")
+                logger.info(f"send items result: {text}")
             else:
-                raise Exception(f"[WID {params.worker_id:2}] status not 200: {text}")
+                raise Exception(f"status not 200: {text}")
     except Exception as e:
         traceback_details = traceback.format_exc()
-        logger.error(f"[WID {params.worker_id:2}] send_shopify_product_to_api Exception occurred:\n{traceback_details}")
-        raise Exception(f"[WID {params.worker_id:2}] Exception send items shopify product to API Failed: {e}")
+        logger.error(f"send_shopify_product_to_api Exception occurred:\n{traceback_details}")
+        raise Exception(f"Exception send items shopify product to API Failed: {e}")
 
     end_time = time.time()
     logger.info(
-        f"[WID {params.worker_id:2}] send items shopify product to API use {end_time - start_time:.2f} seconds")
+        f"send items shopify product to API use {end_time - start_time:.2f} seconds")
 
 async def send_items_to_api(session, params, item):
     """异步发送产品数据到API"""
@@ -242,17 +242,17 @@ async def send_items_to_api(session, params, item):
         ) as response:
             text = await response.text()
             if response.status == 200 and json.loads(text)['stat'] == 1:
-                logger.info(f"[WID {params.worker_id:2}] send items result: {text}")
+                logger.info(f"send items result: {text}")
             else:
-                raise Exception(f"[WID {params.worker_id:2}] stat not 1: {text}")
+                raise Exception(f"stat not 1: {text}")
 
     except Exception as e:
         traceback_details = traceback.format_exc()
-        logger.error(f"[WID {params.worker_id:2}] send_items_to_api Exception occurred:\n{traceback_details}")
-        raise Exception(f"[WID {params.worker_id:2}] Exception send items {params.dbname} to API Failed: {e}")
+        logger.error(f"send_items_to_api Exception occurred:\n{traceback_details}")
+        raise Exception(f"Exception send items {params.dbname} to API Failed: {e}")
 
     end_time = time.time()
-    logger.info(f"[WID {params.worker_id:2}] send items {params.dbname} to API use {end_time - start_time:.2f} seconds")
+    logger.info(f"send items {params.dbname} to API use {end_time - start_time:.2f} seconds")
 
 
 async def test_app(app):

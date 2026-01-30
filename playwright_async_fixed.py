@@ -358,13 +358,13 @@ def make_response_handler(task_id, params, aggregated_data):
         url = response.url
         if 'https://www.google.com/search' in url:
             if response.status in [301, 302]: return
-            logger.info(f"[WID {params.worker_id:2}] 捕获到搜索请求: {url}")
+            logger.info(f"捕获到搜索请求: {url}")
 
             try:
                 body = await response.text()
                 # await save_text(f"./logs/html_temp_{len(os.listdir('./logs')) + 1}.txt", body)
 
-                result = await demo_with_real_data(params.worker_id, body)
+                result = await demo_with_real_data(body)
 
                 # 收集 new_datas
                 for index, item in enumerate(result):
@@ -394,13 +394,13 @@ def make_response_handler(task_id, params, aggregated_data):
                 # 收集 related_search
                 related_search = await get_related_search(body)
                 logger.info(
-                    f"[WID {params.worker_id:2}] related search num: {len(related_search)} {related_search[:3]}...")
+                    f"related search num: {len(related_search)} {related_search[:3]}...")
                 aggregated_data['related_search'].extend(related_search)
 
                 # 收集 related_items
                 related_items = await get_related_items(body)
                 logger.info(
-                    f"[WID {params.worker_id:2}] related item num: {len(related_items)} {related_items[:3]}...")
+                    f"related item num: {len(related_items)} {related_items[:3]}...")
                 aggregated_data['related_items'].extend(related_items)
 
             except Exception as e:
@@ -535,7 +535,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
 
             # 打开 Google 图片搜索
             logger.info(
-                f"[WID {params.worker_id:2}] [{keyword}] 正在打开 Google 图片搜索页面 (尝试 {attempt + 1}/{max_retries})")
+                f"[{keyword}] 正在打开 Google 图片搜索页面 (尝试 {attempt + 1}/{max_retries})")
             await asyncio.wait_for(
                 page.goto(
                     f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl",
@@ -546,14 +546,14 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
             )
 
             # 搜索关键词
-            logger.info(f"[WID {params.worker_id:2}] [{keyword}] 开始输入关键词")
+            logger.info(f"[{keyword}] 开始输入关键词")
             await asyncio.wait_for(
                 human_type_and_submit(page, keyword_item),
                 timeout=20.0
             )
 
             # 平滑滚动
-            logger.info(f"[WID {params.worker_id:2}] [{keyword}] 开始滚动页面")
+            logger.info(f"[{keyword}] 开始滚动页面")
             await asyncio.wait_for(
                 human_scroll(page, 6),
                 timeout=60.0
@@ -561,7 +561,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
 
             await asyncio.sleep(0.5)
 
-            logger.info(f"[WID {params.worker_id:2}] [Success] 完成关键词: {keyword}")
+            logger.info(f"[Success] 完成关键词: {keyword}")
 
             # 关闭页面
             if page: await page.close()
@@ -569,7 +569,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
             # 在循环结束后统一处理所有收集到的数据
             if aggregated_data['new_datas']:
                 logger.info(
-                    f"[WID {params.worker_id:2}] [{keyword}] 开始处理聚合数据，共 {len(aggregated_data['new_datas'])} 条")
+                    f"[{keyword}] 开始处理聚合数据，共 {len(aggregated_data['new_datas'])} 条")
 
                 # 去重处理（如果需要）
                 unique_domains = list(set(aggregated_data['domains']))
@@ -599,12 +599,12 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                         if shopify_products:
                             await send_shopify_product_to_api(session, params, shopify_products)
 
-                logger.info(f"[WID {params.worker_id:2}] [{keyword}] 数据处理完成")
+                logger.info(f"[{keyword}] 数据处理完成")
 
             return True
 
         except asyncio.TimeoutError:
-            logger.error(f"[WID {params.worker_id:2}] [{keyword}] 搜索超时 (尝试 {attempt + 1}/{max_retries})")
+            logger.error(f"[{keyword}] 搜索超时 (尝试 {attempt + 1}/{max_retries})")
             if page:
                 try:
                     await page.close()
@@ -613,12 +613,12 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
             if attempt < max_retries - 1:
                 await asyncio.sleep(3)
             else:
-                logger.error(f"[WID {params.worker_id:2}] [{keyword}] 已达最大重试次数，跳过")
+                logger.error(f"[{keyword}] 已达最大重试次数，跳过")
                 return False
 
         except PlaywrightTimeout as e:
             logger.error(
-                f"[WID {params.worker_id:2}] [{keyword}] Playwright 超时 (尝试 {attempt + 1}/{max_retries}): {e}")
+                f"[{keyword}] Playwright 超时 (尝试 {attempt + 1}/{max_retries}): {e}")
             if page:
                 try:
                     await page.close()
@@ -627,12 +627,12 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
             if attempt < max_retries - 1:
                 await asyncio.sleep(3)
             else:
-                logger.error(f"[WID {params.worker_id:2}] [{keyword}] 已达最大重试次数，跳过")
+                logger.error(f"[{keyword}] 已达最大重试次数，跳过")
                 return False
 
         except Exception as e:
             logger.exception(
-                f"[WID {params.worker_id:2}] [{keyword}] 搜索异常 (尝试 {attempt + 1}/{max_retries}): {e}")
+                f"[{keyword}] 搜索异常 (尝试 {attempt + 1}/{max_retries}): {e}")
             if page:
                 try:
                     await page.close()
@@ -641,7 +641,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
             if attempt < max_retries - 1:
                 await asyncio.sleep(3)
             else:
-                logger.error(f"[WID {params.worker_id:2}] [{keyword}] 已达最大重试次数，跳过")
+                logger.error(f"[{keyword}] 已达最大重试次数，跳过")
                 return False
 
     return False
@@ -671,7 +671,7 @@ async def search_keyword_batch(params):
         )
 
         # 初始化浏览器，带超时
-        logger.info(f"[WID {params.worker_id:2}] 初始化浏览器，代理: {params.proxies['server']}")
+        logger.info(f"初始化浏览器，代理: {params.proxies['server']}")
         await asyncio.wait_for(
             browser.initialize(),
             timeout=60.0
@@ -683,7 +683,7 @@ async def search_keyword_batch(params):
 
         for keyword_item_str in params.tasks:
             keyword_item = json.loads(keyword_item_str)
-            logger.info(f"[WID {params.worker_id:2}] 开始搜索: {keyword_item['name']}")
+            logger.info(f"开始搜索: {keyword_item['name']}")
             success = await search_single_keyword(browser, keyword_item, params)
 
             if success:
@@ -694,17 +694,17 @@ async def search_keyword_batch(params):
             # 每个关键词之间的间隔
             await asyncio.sleep(random.uniform(3, 5))
 
-        logger.info(f"[WID {params.worker_id:2}] 批次完成 - 成功: {success_count}, 失败: {fail_count}")
+        logger.info(f"批次完成 - 成功: {success_count}, 失败: {fail_count}")
 
     except asyncio.TimeoutError:
-        logger.error(f"[WID {params.worker_id:2}] 浏览器初始化超时")
+        logger.error(f"浏览器初始化超时")
         raise
     except Exception as e:
-        logger.exception(f"[WID {params.worker_id:2}] 批量搜索异常: {e}")
+        logger.exception(f"批量搜索异常: {e}")
         raise
     finally:
         if browser:
-            logger.info(f"[WID {params.worker_id:2}] 关闭浏览器")
+            logger.info(f"关闭浏览器")
 
             await browser.close()
 
