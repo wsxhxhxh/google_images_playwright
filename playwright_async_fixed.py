@@ -453,10 +453,10 @@ async def human_type_and_submit(page, keyword_item, timeout=10000):
         # 真人打字（每个字母不等速）
         for ch in keyword:
             await page.keyboard.type(ch)
-            await page.wait_for_timeout(random.randint(50, 120))
+            await page.wait_for_timeout(random.randint(30, 80))
 
         # 打完字，犹豫一下
-        await page.wait_for_timeout(random.randint(200, 600))
+        await page.wait_for_timeout(random.randint(200, 500))
 
         # 用「输入换行」提交（不是 press）
         await page.keyboard.type("\n")
