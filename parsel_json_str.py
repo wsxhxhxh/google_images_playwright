@@ -195,7 +195,7 @@ async def demo_with_real_data(worker_id, real_data):
     result_list = [res for res in parsed_results if res]
     # res = dedupe_by_id(result_list)
     res = dedupe_by_image(result_list)
-    logger.info(f"Worker ID: {worker_id} 找到: {len(res)}个产品 {res[:3]}...")
+    logger.info(f"[WID {worker_id:2}] 找到: {len(res)}个产品 {res[:3]}...")
     return res
 
 
