@@ -42,10 +42,10 @@ async def worker(worker_id: int):
                 collect_platform_type = work_info.get("collect_platform_type")
                 language_id = work_info.get("language_id")
                 language_code = Config.LANGUAGE_CODE_MAP.get(work_info.get("language_code"), "en-US")
-                logger.info(f"Worker ID: {worker_id} get work info: {task_name}")
+                logger.info(f"[WID {worker_id:2}] get work info: {task_name}")
 
                 tasks = await fetch_tasks_from_api(session, dbname, datanum, binddomain)
-                logger.info(f"Worker ID: {worker_id} fetch task num: {len(tasks)} {tasks[:3]}...")
+                logger.info(f"[WID {worker_id:2}] fetch task num: {len(tasks)} {tasks[:3]}...")
                 proxy = await app.get_random_proxy()
                 proxies = {"server": proxy}
 
