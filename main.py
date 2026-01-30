@@ -66,7 +66,6 @@ async def worker(worker_id: int):
                 await search_keyword_batch(params)
         except Exception as e:
             logger.exception(e)
-        break
 
 async def main():
     """主函数"""
