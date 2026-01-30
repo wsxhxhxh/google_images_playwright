@@ -1,3 +1,4 @@
+# main.py
 import json
 import asyncio
 from dataclasses import dataclass
@@ -29,43 +30,51 @@ class SearchTaskParams:
 
 async def worker(worker_id: int):
     while True:
+        session = None
         try:
-            async with aiohttp.ClientSession() as session:
-                work_info = await get_task_info(atm, session)
-                dbname = work_info.get("product_db_name")
-                datanum = work_info.get("keyword_count")
-                binddomain = work_info.get("server_main_domain")
-                usenum = work_info.get("product_count")
-                jxycategory_id = work_info.get("category_id")
-                desimagenum = work_info.get("image_count")
-                task_name = work_info.get("task_name")
-                collect_platform_type = work_info.get("collect_platform_type")
-                language_id = work_info.get("language_id")
-                language_code = Config.LANGUAGE_CODE_MAP.get(work_info.get("language_code"), "en-US")
-                logger.info(f"get work info: {task_name}")
+            session = aiohttp.ClientSession()
+            work_info = await get_task_info(atm, session)
+            dbname = work_info.get("product_db_name")
+            datanum = work_info.get("keyword_count")
+            binddomain = work_info.get("server_main_domain")
+            usenum = work_info.get("product_count")
+            jxycategory_id = work_info.get("category_id")
+            desimagenum = work_info.get("image_count")
+            task_name = work_info.get("task_name")
+            collect_platform_type = work_info.get("collect_platform_type")
+            language_id = work_info.get("language_id")
+            language_code = Config.LANGUAGE_CODE_MAP.get(work_info.get("language_code"), "en-US")
+            logger.info(f"get work info: {task_name}")
 
-                tasks = await fetch_tasks_from_api(session, dbname, datanum, binddomain)
-                logger.info(f"fetch task num: {len(tasks)} {tasks[:3]}...")
-                proxy = await app.get_random_proxy()
-                proxies = {"server": proxy}
+            tasks = await fetch_tasks_from_api(session, dbname, datanum, binddomain)
+            logger.info(f"fetch task num: {len(tasks)} {tasks[:3]}...")
+            proxy = await app.get_random_proxy()
+            proxies = {"server": proxy}
 
-                params = SearchTaskParams(
-                    worker_id=worker_id,
-                    tasks=tasks,
-                    dbname=dbname,
-                    binddomain=binddomain,
-                    language_code=language_code,
-                    usenum=usenum,
-                    desimagenum=desimagenum,
-                    languageid=language_id,
-                    jxycategory_id=jxycategory_id,
-                    proxies=proxies,
-                    collect_platform_type=collect_platform_type,
-                )
+            params = SearchTaskParams(
+                worker_id=worker_id,
+                tasks=tasks,
+                dbname=dbname,
+                binddomain=binddomain,
+                language_code=language_code,
+                usenum=usenum,
+                desimagenum=desimagenum,
+                languageid=language_id,
+                jxycategory_id=jxycategory_id,
+                proxies=proxies,
+                collect_platform_type=collect_platform_type,
+            )
 
-                await search_keyword_batch(params)
+            await search_keyword_batch(params)
         except Exception as e:
             logger.exception(e)
+        finally:
+            # ⭐ 关闭session
+            if session:
+                try:
+                    await session.close()
+                except Exception as e:
+                    logger.warning(f"关闭session失败: {e}")
 
 async def main():
     """主函数"""

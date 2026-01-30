@@ -1,3 +1,4 @@
+# playwright_async_fixed.py
 import json
 import os
 import random
@@ -92,6 +93,7 @@ class PlaywrightBrowser:
             executable_path=self.chrome_path,
             proxy=self.proxies,
             headless=self.headless,
+            timeout=30000,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
@@ -265,30 +267,44 @@ class PlaywrightBrowser:
         await element.type(text, delay=delay)
 
     async def close(self):
-        """关闭浏览器和 Playwright"""
-        try:
-            if self.page:
-                await self.page.close()
-        except Exception as e:
-            logger.warning(f"关闭页面时出错: {e}")
+        """改进的关闭方法"""
+        errors = []
 
-        try:
-            if self.context:
-                await self.context.close()
-        except Exception as e:
-            logger.warning(f"关闭上下文时出错: {e}")
+        # 1. 先关闭所有页面
+        if self.context:
+            try:
+                pages = self.context.pages
+                for page in pages:
+                    try:
+                        await asyncio.wait_for(page.close(), timeout=5.0)
+                    except Exception as e:
+                        errors.append(f"关闭页面失败: {e}")
+            except Exception as e:
+                errors.append(f"获取页面列表失败: {e}")
 
-        try:
-            if self.browser:
-                await self.browser.close()
-        except Exception as e:
-            logger.warning(f"关闭浏览器时出错: {e}")
+        # 2. 关闭上下文
+        if self.context:
+            try:
+                await asyncio.wait_for(self.context.close(), timeout=5.0)
+            except Exception as e:
+                errors.append(f"关闭上下文失败: {e}")
 
-        try:
-            if self.playwright:
-                await self.playwright.stop()
-        except Exception as e:
-            logger.warning(f"停止 Playwright 时出错: {e}")
+        # 3. 关闭浏览器
+        if self.browser:
+            try:
+                await asyncio.wait_for(self.browser.close(), timeout=5.0)
+            except Exception as e:
+                errors.append(f"关闭浏览器失败: {e}")
+
+        # 4. 停止playwright
+        if self.playwright:
+            try:
+                await asyncio.wait_for(self.playwright.stop(), timeout=5.0)
+            except Exception as e:
+                errors.append(f"停止Playwright失败: {e}")
+
+        if errors:
+            logger.warning(f"关闭时遇到错误: {errors}")
 
     async def create_new_page(self) -> Page:
         """创建一个新的独立页面（不覆盖 self.page）"""
@@ -528,7 +544,6 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
     """
     搜索单个关键词
     """
-    page = None
     keyword = keyword_item["name"]
     keyid = keyword_item["id"]
 
@@ -541,12 +556,15 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
     }
 
     for attempt in range(max_retries):
+        page = None
+
         try:
             # 创建新页面
             task = create_child_task(browser.create_new_page())
             page = await asyncio.wait_for(task, timeout=30.0)
             # 传入共享的数据收集器
-            page.on('response', make_response_handler(keyid, params, aggregated_data))
+            response_handler = make_response_handler(keyid, params, aggregated_data)
+            page.on('response', response_handler)
 
             # 打开 Google 图片搜索
             logger.info(
@@ -575,13 +593,9 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
 
             logger.info(f"[Success] 完成关键词: {keyword}")
 
-            # 关闭页面
-            if page: await page.close()
-
             # 在循环结束后统一处理所有收集到的数据
             if aggregated_data['new_datas']:
-                logger.info(
-                    f"[{keyword}] 开始处理聚合数据，共 {len(aggregated_data['new_datas'])} 条")
+                logger.info(f"[{keyword}] 开始处理聚合数据，共 {len(aggregated_data['new_datas'])} 条")
 
                 # 去重处理（如果需要）
                 unique_domains = list(set(aggregated_data['domains']))
@@ -656,6 +670,16 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 logger.error(f"[{keyword}] 已达最大重试次数，跳过")
                 return False
 
+        finally:
+            # 关闭页面
+            if page:
+                try:
+                    # 移除所有监听器
+                    page.remove_all_listeners('response')
+                    await page.close()
+                except Exception as e:
+                    logger.warning(f"关闭页面失败: {e}")
+
     return False
 
 async def search_keyword_batch(params):
@@ -714,9 +738,10 @@ async def search_keyword_batch(params):
         raise
     finally:
         if browser:
-            logger.info(f"关闭浏览器")
-
-            await browser.close()
+            try:
+                await asyncio.wait_for(browser.close(), timeout=10.0)
+            except Exception as e:
+                logger.error(f"关闭浏览器失败: {e}")
 
 
 # 使用示例
