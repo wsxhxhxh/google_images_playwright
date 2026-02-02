@@ -763,7 +763,7 @@ async def test():
 async def verification_pass():
     app = AsyncProxyPool()
     await app.init_proxy_pool()
-    proxys = [p["proxy"] for p in app.proxy_pool]
+    proxys = [{"server": p["proxy"]} for p in app.proxy_pool]
     for proxy in proxys:
         browser = PlaywrightBrowser(
             chrome_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
