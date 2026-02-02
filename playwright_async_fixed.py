@@ -14,7 +14,7 @@ from typing import Optional
 from config import Config, logger
 from deal_product_func_async import deal_info_by_async, deal_shopify_product_info_async
 from parsel_json_str import demo_with_real_data, get_related_search, get_related_items
-from platform_api import send_items_to_api, send_shopify_product_to_api
+from platform_api import send_items_to_api, send_shopify_product_to_api, AsyncProxyPool
 
 
 async def block_images(route):
@@ -760,5 +760,28 @@ async def test():
     await search_keyword_batch(params)
 
 
+async def verification_pass():
+    app = AsyncProxyPool()
+    await app.init_proxy_pool()
+    proxys = [p["proxy"] for p in app.proxy_pool]
+    for proxy in proxys:
+        browser = PlaywrightBrowser(
+            chrome_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            language_code="en-US",
+            proxies=proxy,
+            headless=False
+        )
+        await browser.initialize()
+        page = await browser.create_new_page()
+
+        await page.goto("https://google.com", wait_until="domcontentloaded")
+
+        input("输入关闭浏览器")
+
+        await page.close()
+        await browser.close()
+    print(proxys)
+
+
 if __name__ == "__main__":
-    asyncio.run(test())
+    asyncio.run(verification_pass())
