@@ -27,7 +27,7 @@ class SearchTaskParams:
     jxycategory_id: str
     proxies: Dict[str, str]
     collect_platform_type: List[str]
-    app=app
+    app: AsyncProxyPool
 
 async def worker(worker_id: int):
     while True:
@@ -64,6 +64,7 @@ async def worker(worker_id: int):
                 jxycategory_id=jxycategory_id,
                 proxies=proxies,
                 collect_platform_type=collect_platform_type,
+                app=app,
             )
 
             await search_keyword_batch(params)
