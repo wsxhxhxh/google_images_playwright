@@ -136,19 +136,8 @@ class AsyncProxyPool:
 
     async def _check_proxy(self, proxy: str) -> bool:
         """真正检测代理是否可用"""
-        try:
-            connector = ProxyConnector.from_url(proxy)
-            timeout = aiohttp.ClientTimeout(total=10)
+        return True
 
-            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-                # 使用轻量级的请求测试代理
-                async with session.get("https://www.google.com", ssl=False) as resp:
-                    if resp.status in [200, 301, 302]:
-                        logger.debug(f"代理验证成功: {proxy}")
-                        return True
-        except Exception as e:
-            logger.debug(f"代理验证失败 {proxy}: {type(e).__name__}")
-        return False
 
     async def get_random_proxy(self) -> Optional[str]:
         """

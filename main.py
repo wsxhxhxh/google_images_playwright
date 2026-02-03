@@ -27,6 +27,7 @@ class SearchTaskParams:
     jxycategory_id: str
     proxies: Dict[str, str]
     collect_platform_type: List[str]
+    app=app
 
 async def worker(worker_id: int):
     while True:

@@ -677,6 +677,8 @@ async def search_keyword_batch(params):
     browser = None
 
     try:
+        proxy = await params.app.get_random_proxy()
+        params.proxies = {"server": proxy}
         browser = PlaywrightBrowser(
             chrome_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             language_code=params.language_code,
