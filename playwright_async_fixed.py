@@ -312,7 +312,7 @@ class PlaywrightBrowser:
             raise RuntimeError("Browser context not initialized. Call initialize() first.")
 
         page = await self.context.new_page()
-        await page.route("**/*", block_images)
+        # await page.route("**/*", block_images)
         # 注入反爬虫脚本
         await self._inject_anti_detection_scripts(page)
 
@@ -606,9 +606,9 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 await asyncio.wait_for(task, timeout=20.0)
 
                 # 平滑滚动
-                logger.info(f"[{keyword}] 开始滚动页面")
-                task = create_child_task(human_scroll_old(page, 6))
-                await asyncio.wait_for(task, timeout=60.0)
+                # logger.info(f"[{keyword}] 开始滚动页面")
+                # task = create_child_task(human_scroll_old(page, 6))
+                # await asyncio.wait_for(task, timeout=60.0)
 
                 await asyncio.sleep(0.5)
 
