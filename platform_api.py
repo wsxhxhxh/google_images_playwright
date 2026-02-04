@@ -138,7 +138,6 @@ class AsyncProxyPool:
         """真正检测代理是否可用"""
         return True
 
-
     async def get_random_proxy(self) -> Optional[str]:
         """
         改进的获取代理方法（消除竞态条件）
@@ -152,7 +151,6 @@ class AsyncProxyPool:
                 available = [
                     p for p in self.proxy_pool
                     if not self._in_cooldown(p)
-                       and not p["in_use"]  # ⭐ 排除正在使用的
                        and p["proxy"] not in self._checking  # ⭐ 排除正在检测的
                        and p["fail_count"] < 5  # 失败次数过多的跳过
                 ]
@@ -161,7 +159,6 @@ class AsyncProxyPool:
                     logger.warning(
                         f"无可用代理 (总数: {len(self.proxy_pool)}, "
                         f"冷却中: {sum(1 for p in self.proxy_pool if self._in_cooldown(p))}, "
-                        f"使用中: {sum(1 for p in self.proxy_pool if p['in_use'])}, "
                         f"检测中: {len(self._checking)})"
                     )
                     return None
@@ -190,9 +187,8 @@ class AsyncProxyPool:
                 proxy_info["last_check"] = time.time()
 
                 if ok:
-                    # 代理可用，标记为使用中并设置冷却
+                    # ⭐ 代理可用，只设置冷却期（不标记为使用中）
                     proxy_info["fail_count"] = 0
-                    proxy_info["in_use"] = True  # ⭐ 标记为使用中
                     self._set_cooldown(proxy_info)  # ⭐ 设置冷却期
                     logger.info(f"✅ 分配代理: {proxy}")
                     return proxy
