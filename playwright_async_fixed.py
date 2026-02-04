@@ -609,7 +609,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 current_url = page.url
                 if '/sorry/' in current_url or 'sorry' in current_url:
                     logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
-                    input("Google CAPTCHA detected - /sorry/ page")
+                    raise Exception("Google CAPTCHA detected - /sorry/ page")
 
                 # 平滑滚动
                 # logger.info(f"[{keyword}] 开始滚动页面")
