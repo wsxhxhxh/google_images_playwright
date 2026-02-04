@@ -710,10 +710,14 @@ async def search_keyword_batch(params):
     browser = None
 
     try:
-        pool_status = await params.app.get_pool_status()
-        logger.info(str(pool_status))
-        proxy = await params.app.get_random_proxy()
-        params.proxies = {"server": proxy}
+        while True:
+            proxy = await params.app.get_random_proxy()
+            params.proxies = {"server": proxy}
+            if proxy: break
+            else:
+                pool_status = await params.app.get_pool_status()
+                logger.info(str(pool_status))
+                await asyncio.sleep(30)
         browser = PlaywrightBrowser(
             chrome_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             language_code=params.language_code,
