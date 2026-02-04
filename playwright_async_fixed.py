@@ -631,12 +631,6 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 task = create_child_task(human_type_and_submit(page, keyword_item))
                 await asyncio.wait_for(task, timeout=20.0)
 
-                # **检测点1: 检查页面加载后的URL**
-                current_url = page.url
-                if '/sorry/' in current_url or 'sorry' in current_url:
-                    logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
-                    raise Exception("Google CAPTCHA detected - /sorry/ page")
-
                 # 平滑滚动
                 # logger.info(f"[{keyword}] 开始滚动页面")
                 # task = create_child_task(human_scroll_old(page, 6))
@@ -679,6 +673,13 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                                 await send_shopify_product_to_api(session, params, shopify_products)
 
                     logger.info(f"[{keyword}] 数据处理完成")
+
+                # **检测点1: 检查页面加载后的URL**
+                current_url = page.url
+                if '/sorry/' in current_url or 'sorry' in current_url:
+                    logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
+                    logger.error("Google CAPTCHA detected - /sorry/ page")
+                    return None
 
                 return True
 
@@ -735,6 +736,8 @@ async def search_keyword_batch(params):
             if success:
                 success_count += 1
             else:
+                if success is None:
+                    break
                 fail_count += 1
 
             # 每个关键词之间的间隔
