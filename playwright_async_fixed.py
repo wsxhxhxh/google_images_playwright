@@ -611,7 +611,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
             async with ManagedPage(browser, keyword) as page:
 
                 # 注册响应处理器
-                response_handler = make_response_handler(keyid, params, aggregated_data)
+                response_handler = make_response_handler(keyid, params, aggregated_data, tracker)
                 page.on('response', response_handler)
 
                 # 打开 Google 图片搜索
