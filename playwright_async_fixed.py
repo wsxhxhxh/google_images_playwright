@@ -342,6 +342,33 @@ class ManagedPage:
             except Exception as e:
                 logger.error(f"[{self.keyword}] 关闭页面失败: {e}")
 
+class ResponseTracker:
+    """追踪响应处理状态"""
+
+    def __init__(self):
+        self.pending = 0
+        self.lock = asyncio.Lock()
+        self.all_done = asyncio.Event()
+        self.all_done.set()  # 初始状态为完成
+
+    async def start(self):
+        async with self.lock:
+            if self.pending == 0:
+                self.all_done.clear()
+            self.pending += 1
+
+    async def finish(self):
+        async with self.lock:
+            self.pending -= 1
+            if self.pending == 0:
+                self.all_done.set()
+
+    async def wait_all(self, timeout=10):
+        """等待所有响应处理完成"""
+        try:
+            await asyncio.wait_for(self.all_done.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.warning(f"等待响应处理超时，还有 {self.pending} 个未完成")
 
 async def human_mouse_move(page, start, end, steps=30):
     for i in range(steps):
@@ -405,7 +432,7 @@ async def human_scroll_old(page, steps=6):
             pos = max(pos - back, 0)
             await page.evaluate(f"window.scrollTo(0, {pos})")
 
-def make_response_handler(task_id, params, aggregated_data):
+def make_response_handler(task_id, params, aggregated_data, tracker):
     """
     aggregated_data: 共享的数据收集器字典，包含 new_datas, related_search, related_items
     """
@@ -415,7 +442,7 @@ def make_response_handler(task_id, params, aggregated_data):
         if 'https://www.google.com/search' in url:
             if response.status in [301, 302]: return
             logger.info(f"捕获到搜索请求: {url}")
-
+            await tracker.start()  # 标记开始处理
             try:
                 body = await response.text()
                 # await save_text(f"./logs/html_temp_{len(os.listdir('./logs')) + 1}.txt", body)
@@ -458,9 +485,10 @@ def make_response_handler(task_id, params, aggregated_data):
                 logger.info(
                     f"related item num: {len(related_items)} {related_items[:3]}...")
                 aggregated_data['related_items'].extend(related_items)
-
             except Exception as e:
                 logger.exception(f"无法获取响应体: {e}")
+            finally:
+                await tracker.finish()  # 标记完成
 
     return handle_response
 
@@ -577,10 +605,8 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
         'related_items': [],
         'domains': []
     }
-
+    tracker = ResponseTracker()  # 创建追踪器
     for attempt in range(max_retries):
-
-
         try:
             async with ManagedPage(browser, keyword) as page:
 
@@ -616,8 +642,8 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 # task = create_child_task(human_scroll_old(page, 6))
                 # await asyncio.wait_for(task, timeout=60.0)
 
-                await asyncio.sleep(0.5)
-
+                # await asyncio.sleep(0.5)
+                await tracker.wait_all(timeout=10)
                 logger.info(f"[Success] 完成关键词: {keyword}")
 
                 # 在循环结束后统一处理所有收集到的数据
