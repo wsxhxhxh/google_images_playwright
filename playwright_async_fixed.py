@@ -421,16 +421,17 @@ async def human_scroll_old(page, steps=6):
 
     pos = 0
     for _ in range(steps):
-        delta = random.randint(200, 500)
+        delta = random.randint(300, 500)
         pos = min(pos + delta, height)
 
         await page.evaluate(f"window.scrollTo(0, {pos})")
         await asyncio.sleep(random.uniform(0.6, 1.4))
+        if pos >= height: break
 
-        if random.random() < 0.25:
-            back = random.randint(80, 200)
-            pos = max(pos - back, 0)
-            await page.evaluate(f"window.scrollTo(0, {pos})")
+    if random.random() < 0.25:
+        back = random.randint(80, 200)
+        pos = max(pos - back, 0)
+        await page.evaluate(f"window.scrollTo(0, {pos})")
 
 def make_response_handler(task_id, params, aggregated_data, tracker):
     """
@@ -632,9 +633,9 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 await asyncio.wait_for(task, timeout=20.0)
 
                 # 平滑滚动
-                # logger.info(f"[{keyword}] 开始滚动页面")
-                # task = create_child_task(human_scroll_old(page, 6))
-                # await asyncio.wait_for(task, timeout=60.0)
+                logger.info(f"[{keyword}] 开始滚动页面")
+                task = create_child_task(human_scroll_old(page, 10))
+                await asyncio.wait_for(task, timeout=60.0)
 
                 # await asyncio.sleep(0.5)
                 await tracker.wait_all(timeout=10)
