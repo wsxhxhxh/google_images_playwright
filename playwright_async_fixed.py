@@ -44,8 +44,8 @@ def create_child_task(coro, *, name=None, suffix=None):
 
     return asyncio.create_task(coro, name=task_name)
 
-async def save_text(path: str, content: str):
-    async with aiofiles.open(path, mode="w", encoding="utf-8") as f:
+async def save_text(path: str, content: str, mode:str="w"):
+    async with aiofiles.open(path, mode=mode, encoding="utf-8") as f:
         await f.write(content)
 
 
@@ -679,9 +679,17 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 current_url = page.url
                 if '/sorry/' in current_url or 'sorry' in current_url:
                     logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
-                    logger.error("Google CAPTCHA detected - /sorry/ page")
+                    await save_text(
+                        "err_ip.txt",
+                        f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} fail\n",
+                        "a"
+                    )
                     return None
-
+                await save_text(
+                    "err_ip.txt",
+                    f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} success\n",
+                    "a"
+                )
                 return True
 
         except Exception as e:
