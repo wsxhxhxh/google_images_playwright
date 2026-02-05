@@ -364,21 +364,77 @@ async def get_related_items(html_content):
     )
 
 
-async def main():
+async def test():
     """主函数 (异步)"""
     # 异步读取文件
     import aiofiles
+    import datetime
+    import aiohttp
+    from deal_product_func_async import deal_info_by_async
+    from platform_api import send_items_to_api
 
-    file_path = r"C:\Users\XXX\Desktop\mypy\demo9_google_image\logs\html_temp_2.txt"
+    file_path = r"C:\Users\XXX\Desktop\111\html_temp_9.txt"
 
     async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
         text = await f.read()
 
-    res = await demo_with_real_data(text)
-    # for r in res:
-    #     logger.info(r)
+    class P: pass
+    params = P()
+    params.worker_id = 1
+    params.dbname = "t0062-c2-en-usgoimg"
+    params.binddomain = "image8xgs.xyz"
+    params.usenum = 20
+    params.desimagenum = 20
+    params.collect_platform_type = None
+
+    result = await demo_with_real_data(text)
+    new_datas = []
+    for index, item in enumerate(result):
+        if item.get("site", ".jp").endswith('.jp'):
+            continue
+        new_data = {
+            "index": item.get("id"),
+            "word": item.get("title"),
+            "domain": item.get("site"),
+            "link": item.get("url"),
+            "image": item.get("image"),
+            "info": {
+                "desc": item.get("desc"),
+                "brand": item.get("brand"),
+                "price": item.get("price"),
+                "currency": item.get("currency"),
+                "score": item.get("score"),
+                "review": item.get("review"),
+            },
+            "parent": 1,
+            "stat": -1,
+            "createdAt": str(datetime.datetime.now(datetime.timezone.utc))
+        }
+        new_datas.append(new_data)
+
+    print(len(new_datas), new_datas[:1])
+    ll = await deal_info_by_async(new_datas, params)
+    print(len(ll), ll[:1])
+
+
+    google_item = {
+        'id': "11",
+        'use_proxy_ip': "127.0.0.1",
+        'from': "127.0.0.1",
+        'word': "t1st",
+        'script': "",
+        'domains': '[]',
+        'related': '[]',
+        'items': '[]',
+        'products': json.dumps(ll)
+    }
+
+    async with aiohttp.ClientSession() as session:
+        await send_items_to_api(session, params, google_item)
+    # print(ll)
+
 
 
 if __name__ == '__main__':
     # 运行异步主函数
-    asyncio.run(main())
+    asyncio.run(test())
