@@ -679,6 +679,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 current_url = page.url
                 if '/sorry/' in current_url or 'sorry' in current_url:
                     logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
+                    params.app.set_fail(params.proxies.get('server'))
                     await save_text(
                         "err_ip.txt",
                         f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} fail\n",
@@ -690,6 +691,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                     f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} success\n",
                     "a"
                 )
+                params.app.set_success(params.proxies.get('server'))
                 return True
 
         except Exception as e:
