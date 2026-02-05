@@ -84,13 +84,13 @@ async def main():
         # 初始化代理池
         logger.info("开始初始化代理池...")
         await asyncio.wait_for(app.init_proxy_pool(), timeout=60.0)
-        logger.info(f"代理池初始化完成：共 {len(app.proxy_pool)} 个代理")
+        logger.info(f"代理池初始化完成：共 {len(app.proxies)} 个代理")
         logger.info("开始获取平台Token...")
         await asyncio.wait_for(atm.refresh_token(), timeout=60.0)
         token = await atm.get_token()
         logger.info(f"获取到平台Token: {token}")
 
-        if len(app.proxy_pool) == 0:
+        if len(app.proxies) == 0:
             logger.error("代理池为空，程序退出")
             return
 
