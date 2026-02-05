@@ -284,7 +284,7 @@ class AsyncProxyPool:
             }
 
         self._initialized = True
-        print(f"代理池初始化完成，共加载 {len(self.proxies)} 个代理")
+        logger.info(f"代理池初始化完成，共加载 {len(self.proxies)} 个代理")
 
     async def get_random_proxy(self) -> Optional[str]:
         """
@@ -339,7 +339,7 @@ class AsyncProxyPool:
                 status['cooldown_until'] = None
                 status['fail_count'] = 0  # 重置连续失败次数
                 status['total_success'] += 1
-                print(f"代理 {proxy} 标记为成功，状态已恢复")
+                logger.info(f"代理 {proxy} 标记为成功，状态已恢复")
 
     async def set_fail(self, proxy: str):
         """
@@ -374,7 +374,7 @@ class AsyncProxyPool:
                     cooldown_minutes = 30
                     status['cooldown_until'] = current_time + timedelta(minutes=30)
 
-                print(f"代理 {proxy} 标记为失败（第{status['fail_count']}次），"
+                logger.info(f"代理 {proxy} 标记为失败（第{status['fail_count']}次），"
                       f"冷却{cooldown_minutes}分钟至 {status['cooldown_until'].strftime('%H:%M:%S')}")
 
     async def get_pool_status(self) -> Dict:
@@ -527,7 +527,7 @@ async def testapp():
     # 3. 获取随机代理
     proxy = await proxy_pool.get_random_proxy()
     if proxy:
-        print(f"获取到代理: {proxy}")
+        logger.info(f"获取到代理: {proxy}")
 
         # 4. 模拟使用代理（假设失败）
         await proxy_pool.set_fail(proxy)
@@ -535,7 +535,7 @@ async def testapp():
 
         # 5. 再次获取代理
         proxy2 = await proxy_pool.get_random_proxy()
-        print(f"第二次获取代理: {proxy2}")
+        logger.info(f"第二次获取代理: {proxy2}")
 
         # 6. 模拟使用成功
         if proxy2:
@@ -544,18 +544,18 @@ async def testapp():
 
     # 7. 查看代理池状态
     status = await proxy_pool.get_pool_status()
-    print("\n代理池状态:")
-    print(f"总代理数: {status['total_proxies']}")
-    print(f"可用代理: {status['available_proxies']}")
-    print(f"冷却中代理: {status['cooling_proxies']}")
+    logger.info("\n代理池状态:")
+    logger.info(f"总代理数: {status['total_proxies']}")
+    logger.info(f"可用代理: {status['available_proxies']}")
+    logger.info(f"冷却中代理: {status['cooling_proxies']}")
 
 
     await proxy_pool.set_success(proxy)
     status = await proxy_pool.get_pool_status()
-    print("\n代理池状态:")
-    print(f"总代理数: {status['total_proxies']}")
-    print(f"可用代理: {status['available_proxies']}")
-    print(f"冷却中代理: {status['cooling_proxies']}")
+    logger.info("\n代理池状态:")
+    logger.info(f"总代理数: {status['total_proxies']}")
+    logger.info(f"可用代理: {status['available_proxies']}")
+    logger.info(f"冷却中代理: {status['cooling_proxies']}")
 
 
 if __name__ == '__main__':
