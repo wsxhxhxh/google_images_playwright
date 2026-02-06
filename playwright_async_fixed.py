@@ -179,6 +179,8 @@ class PlaywrightBrowser:
 
         self.context = context
         self.page = None
+        self.guard_page = await self.context.new_page()
+        await self.guard_page.goto("about:blank")
 
     async def _inject_anti_detection_scripts(self, page):
         """注入反检测脚本"""
