@@ -15,7 +15,7 @@ async def test_proxy():
         timeout=timeout
     ) as session:
         try:
-            async with session.get("https://ipinfo.io/ip") as resp:
+            async with session.get("https://ipinfo.io/ip", ssl=False) as resp:
                 text = await resp.text()
                 print("proxy:", text.strip())
         except Exception as e:
@@ -27,7 +27,7 @@ async def test_no_proxy():
 
     async with aiohttp.ClientSession(timeout=timeout) as session:
         try:
-            async with session.get("https://ipinfo.io/ip") as resp:
+            async with session.get("https://ipinfo.io/ip", ssl=False) as resp:
                 text = await resp.text()
                 print("no proxy:", text.strip())
         except Exception as e:
