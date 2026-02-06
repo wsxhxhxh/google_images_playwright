@@ -838,4 +838,4 @@ async def verification_pass():
 
 
 if __name__ == "__main__":
-    asyncio.run(verification_pass())
+    asyncio.run(test())
