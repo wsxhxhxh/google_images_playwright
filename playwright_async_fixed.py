@@ -1,11 +1,9 @@
-# playwright_async_fixed.py
 import json
 import os
 import random
 import datetime
 import asyncio
 import aiofiles
-
 
 import aiohttp
 from playwright.async_api import async_playwright, BrowserContext, Page, TimeoutError as PlaywrightTimeout
@@ -15,6 +13,9 @@ from config import Config, logger
 from deal_product_func_async import deal_info_by_async, deal_shopify_product_info_async
 from parsel_json_str import demo_with_real_data, get_related_search, get_related_items
 from platform_api import send_items_to_api, send_shopify_product_to_api, AsyncProxyPool
+
+# 全局剪贴板锁，避免多任务间剪贴板操作冲突
+clipboard_lock = asyncio.Lock()
 
 
 async def block_images(route):
@@ -44,7 +45,8 @@ def create_child_task(coro, *, name=None, suffix=None):
 
     return asyncio.create_task(coro, name=task_name)
 
-async def save_text(path: str, content: str, mode:str="w"):
+
+async def save_text(path: str, content: str, mode: str = "w"):
     async with aiofiles.open(path, mode=mode, encoding="utf-8") as f:
         await f.write(content)
 
@@ -318,6 +320,7 @@ class PlaywrightBrowser:
 
         return page
 
+
 class ManagedPage:
     """页面管理器，确保页面总是被关闭"""
 
@@ -341,6 +344,7 @@ class ManagedPage:
                 logger.info(f"[{self.keyword}] 页面已关闭")
             except Exception as e:
                 logger.error(f"[{self.keyword}] 关闭页面失败: {e}")
+
 
 class ResponseTracker:
     """追踪响应处理状态"""
@@ -369,6 +373,7 @@ class ResponseTracker:
             await asyncio.wait_for(self.all_done.wait(), timeout=timeout)
         except asyncio.TimeoutError:
             logger.warning(f"等待响应处理超时，还有 {self.pending} 个未完成")
+
 
 async def human_mouse_move(page, start, end, steps=30):
     for i in range(steps):
@@ -433,6 +438,7 @@ async def human_scroll_old(page, steps=6):
         pos = max(pos - back, 0)
         await page.evaluate(f"window.scrollTo(0, {pos})")
 
+
 def make_response_handler(task_id, params, aggregated_data, tracker):
     """
     aggregated_data: 共享的数据收集器字典，包含 new_datas, related_search, related_items
@@ -493,9 +499,10 @@ def make_response_handler(task_id, params, aggregated_data, tracker):
 
     return handle_response
 
+
 async def human_type_and_submit(page, keyword_item, timeout=10000):
     """
-    模拟人类输入并提交搜索
+    模拟人类输入并提交搜索（使用剪贴板粘贴）
 
     Args:
         page: Playwright 页面对象
@@ -535,12 +542,29 @@ async def human_type_and_submit(page, keyword_item, timeout=10000):
 
         await page.wait_for_timeout(random.randint(100, 300))
 
-        # 真人打字（每个字母不等速）
-        for ch in keyword:
-            await page.keyboard.type(ch)
-            await page.wait_for_timeout(random.randint(30, 80))
+        # 使用剪贴板粘贴（加锁避免多任务干扰）
+        async with clipboard_lock:
+            logger.info(f"[{keyword}] 获取剪贴板锁，准备粘贴")
 
-        # 打完字，犹豫一下
+            # 使用 Playwright 的 CDP 设置剪贴板
+            # 这种方式不依赖系统剪贴板，避免多任务冲突
+            await page.evaluate(f"""
+                async () => {{
+                    await navigator.clipboard.writeText({json.dumps(keyword)});
+                }}
+            """)
+
+            # 等待一小段时间确保剪贴板设置完成
+            await page.wait_for_timeout(random.randint(50, 150))
+
+            # 模拟 Ctrl+V 粘贴
+            await page.keyboard.down("Control")
+            await page.keyboard.press("KeyV")
+            await page.keyboard.up("Control")
+
+            logger.info(f"[{keyword}] 粘贴完成，释放剪贴板锁")
+
+        # 粘贴后停顿
         await page.wait_for_timeout(random.randint(200, 500))
 
         # 用「输入换行」提交（不是 press）
@@ -647,8 +671,10 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
 
                     # 去重处理（如果需要）
                     unique_domains = list(set(aggregated_data['domains']))
-                    unique_related_search = list(set(aggregated_data['related_search'])) if aggregated_data['related_search'] else []
-                    unique_related_items = list(set(aggregated_data['related_items'])) if aggregated_data['related_items'] else []
+                    unique_related_search = list(set(aggregated_data['related_search'])) if aggregated_data[
+                        'related_search'] else []
+                    unique_related_items = list(set(aggregated_data['related_items'])) if aggregated_data[
+                        'related_items'] else []
 
                     # 统一处理所有数据
                     products = await deal_info_by_async(aggregated_data['new_datas'], params)
@@ -704,6 +730,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
 
     return False
 
+
 async def search_keyword_batch(params):
     """
     批量搜索关键词
@@ -724,7 +751,8 @@ async def search_keyword_batch(params):
         while True:
             proxy = await params.app.get_random_proxy()
             params.proxies = {"server": proxy}
-            if proxy: break
+            if proxy:
+                break
             else:
                 pool_status = await params.app.get_pool_status()
                 logger.info(str(pool_status))
@@ -781,6 +809,7 @@ async def test():
     from dataclasses import dataclass
     app1 = AsyncProxyPool()
     await app1.init_proxy_pool()
+
     @dataclass
     class SearchTaskParams:
         """搜索任务参数类"""
