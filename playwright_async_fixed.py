@@ -779,26 +779,28 @@ async def search_keyword_batch(params):
 # 使用示例
 async def test():
     from dataclasses import dataclass
+    app1 = AsyncProxyPool()
+    await app1.init_proxy_pool()
     @dataclass
     class SearchTaskParams:
         """搜索任务参数类"""
         worker_id = 1
         tasks = [
             "{\"id\":\"487\",\"name\":\"crossbow herbicide before and after\"}",
-            "{\"id\":\"918\",\"name\":\"atrazine herbicide brand names\"}",
-            "{\"id\":\"135\",\"name\":\"free crochet air plant pot\"}",
-            "{\"id\":\"182\",\"name\":\"small air plant pot\"}",
-            "{\"id\":\"663\",\"name\":\"2 4 d lv6 herbicide\"}",
-            "{\"id\":\"327\",\"name\":\"celsius herbicide on centipede\"}",
-            "{\"id\":\"1119\",\"name\":\"glyphosate only herbicide\"}",
-            "{\"id\":\"1179\",\"name\":\"glyphosate herbicide dosage per gallon\"}",
-            "{\"id\":\"459\",\"name\":\"crossbow herbicide lowes\"}",
-            "{\"id\":\"973\",\"name\":\"drive 75 df herbicide label\"}",
-            "{\"id\":\"712\",\"name\":\"2 4 d herbicide seeding\"}",
-            "{\"id\":\"1001\",\"name\":\"drive xlr8 herbicide crabgrass\"}",
-            "{\"id\":\"1104\",\"name\":\"glyphosate herbicide tractor supply\"}",
-            "{\"id\":\"919\",\"name\":\"atrazine herbicide dosage per litre\"}",
-            "{\"id\":\"668\",\"name\":\"2 4 d granular aquatic herbicide\"}",
+            # "{\"id\":\"918\",\"name\":\"atrazine herbicide brand names\"}",
+            # "{\"id\":\"135\",\"name\":\"free crochet air plant pot\"}",
+            # "{\"id\":\"182\",\"name\":\"small air plant pot\"}",
+            # "{\"id\":\"663\",\"name\":\"2 4 d lv6 herbicide\"}",
+            # "{\"id\":\"327\",\"name\":\"celsius herbicide on centipede\"}",
+            # "{\"id\":\"1119\",\"name\":\"glyphosate only herbicide\"}",
+            # "{\"id\":\"1179\",\"name\":\"glyphosate herbicide dosage per gallon\"}",
+            # "{\"id\":\"459\",\"name\":\"crossbow herbicide lowes\"}",
+            # "{\"id\":\"973\",\"name\":\"drive 75 df herbicide label\"}",
+            # "{\"id\":\"712\",\"name\":\"2 4 d herbicide seeding\"}",
+            # "{\"id\":\"1001\",\"name\":\"drive xlr8 herbicide crabgrass\"}",
+            # "{\"id\":\"1104\",\"name\":\"glyphosate herbicide tractor supply\"}",
+            # "{\"id\":\"919\",\"name\":\"atrazine herbicide dosage per litre\"}",
+            # "{\"id\":\"668\",\"name\":\"2 4 d granular aquatic herbicide\"}",
         ]
         dbname = "t0039-c19-de-usgoimg"
         binddomain = "image8xgs.xyz"
@@ -809,6 +811,7 @@ async def test():
         jxycategory_id = 19
         proxies = {"server": "socks5://172.96.89.145:1080"}
         collect_platform_type = None
+        app = app1
 
     params = SearchTaskParams()
     await search_keyword_batch(params)
@@ -817,7 +820,7 @@ async def test():
 async def verification_pass():
     app = AsyncProxyPool()
     await app.init_proxy_pool()
-    proxys = [{"server": p["proxy"]} for p in app.proxy_pool]
+    proxys = [{"server": p["proxy"]} for p in app.proxies]
     for proxy in proxys:
         browser = PlaywrightBrowser(
             chrome_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
