@@ -634,6 +634,16 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 task = create_child_task(human_type_and_submit(page, keyword_item))
                 await asyncio.wait_for(task, timeout=20.0)
 
+                if '/sorry/' in current_url or 'sorry' in current_url:
+                    logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
+                    params.app.set_fail(params.proxies.get('server'))
+                    await save_text(
+                        "err_ip.txt",
+                        f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} fail\n",
+                        "a"
+                    )
+                    return None
+
                 # 平滑滚动
                 logger.info(f"[{keyword}] 开始滚动页面")
                 task = create_child_task(human_scroll_old(page, 3))
@@ -758,11 +768,20 @@ async def search_keyword_batch(params):
 
             if success:
                 success_count += 1
+            elif success is None:
+                # ⭐ 检测到验证页面，立即关闭浏览器并退出循环
+                logger.warning(f"检测到验证页面，立即关闭浏览器并退出")
+                if browser:
+                    try:
+                        await asyncio.wait_for(browser.close(), timeout=10.0)
+                        logger.info("浏览器已关闭")
+                        browser = None  # 防止 finally 重复关闭
+                    except Exception as e:
+                        logger.error(f"关闭浏览器失败: {e}")
+                break  # 退出循环
             else:
-                if success is None:
-                    break
-                fail_count += 1
 
+                fail_count += 1
 
         logger.info(f"批次完成 - 成功: {success_count}, 失败: {fail_count}")
 
