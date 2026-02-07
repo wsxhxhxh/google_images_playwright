@@ -634,6 +634,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 task = create_child_task(human_type_and_submit(page, keyword_item))
                 await asyncio.wait_for(task, timeout=20.0)
 
+                current_url = page.url
                 if '/sorry/' in current_url or 'sorry' in current_url:
                     logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
                     params.app.set_fail(params.proxies.get('server'))
@@ -780,7 +781,6 @@ async def search_keyword_batch(params):
                         logger.error(f"关闭浏览器失败: {e}")
                 break  # 退出循环
             else:
-
                 fail_count += 1
 
         logger.info(f"批次完成 - 成功: {success_count}, 失败: {fail_count}")
