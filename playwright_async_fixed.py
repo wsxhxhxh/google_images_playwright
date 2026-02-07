@@ -544,36 +544,12 @@ async def human_type_and_submit(page, keyword_item, timeout=10000):
 
         await page.wait_for_timeout(random.randint(100, 300))
 
-        # 使用剪贴板粘贴（加锁避免多任务干扰）
-        async with clipboard_lock:
-            logger.info(f"[{keyword}] 获取剪贴板锁，准备粘贴")
+        await page.evaluate(f"""
+            document.querySelector('textarea.gLFyf').value = {json.dumps(keyword)};
+        """)
 
-            # 使用 Playwright 的 CDP 设置剪贴板
-            # 这种方式不依赖系统剪贴板，避免多任务冲突
-            await page.evaluate(f"""
-                async () => {{
-                    await navigator.clipboard.writeText({json.dumps(keyword)});
-                }}
-            """)
+        await page.keyboard.press("Enter")
 
-            # 等待一小段时间确保剪贴板设置完成
-            await page.wait_for_timeout(random.randint(50, 150))
-
-            # 模拟 Ctrl+V 粘贴
-            await page.keyboard.down("Control")
-            await page.keyboard.press("KeyV")
-            await page.keyboard.up("Control")
-
-            logger.info(f"[{keyword}] 粘贴完成，释放剪贴板锁")
-
-        # 粘贴后停顿
-        await page.wait_for_timeout(random.randint(200, 500))
-
-        # 用「输入换行」提交（不是 press）
-        await page.keyboard.type("\n")
-
-        # 提交后停顿
-        await page.wait_for_timeout(random.randint(800, 1500))
 
     except PlaywrightTimeout as e:
         logger.error(f"人类输入超时: {e}")
@@ -660,11 +636,11 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
 
                 # 平滑滚动
                 logger.info(f"[{keyword}] 开始滚动页面")
-                task = create_child_task(human_scroll_old(page, 10))
+                task = create_child_task(human_scroll_old(page, 3))
                 await asyncio.wait_for(task, timeout=60.0)
 
                 # await asyncio.sleep(0.5)
-                await tracker.wait_all(timeout=10)
+                await tracker.wait_all(timeout=5)
                 logger.info(f"[Success] 完成关键词: {keyword}")
 
                 # 在循环结束后统一处理所有收集到的数据
@@ -787,8 +763,6 @@ async def search_keyword_batch(params):
                     break
                 fail_count += 1
 
-            # 每个关键词之间的间隔
-            await asyncio.sleep(random.uniform(3, 5))
 
         logger.info(f"批次完成 - 成功: {success_count}, 失败: {fail_count}")
 
