@@ -342,6 +342,7 @@ class ManagedPage:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.page:
             try:
+                await asyncio.sleep(0.3)
                 await asyncio.wait_for(self.page.close(), timeout=5.0)
                 logger.info(f"[{self.keyword}] 页面已关闭")
             except Exception as e:
@@ -495,7 +496,10 @@ def make_response_handler(task_id, params, aggregated_data, tracker):
                     f"related item num: {len(related_items)} {related_items[:3]}...")
                 aggregated_data['related_items'].extend(related_items)
             except Exception as e:
-                logger.exception(f"无法获取响应体: {e}")
+                if "Target page, context or browser has been closed" in str(e):
+                    logger.warning("页面已关闭，无法获取响应体")
+                else:
+                    logger.exception(f"无法获取响应体: {e}")
             finally:
                 await tracker.finish()  # 标记完成
 
@@ -628,7 +632,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                     )
                 )
                 await asyncio.wait_for(task, timeout=40.0)
-
+                await asyncio.sleep(0.5)
                 # 搜索关键词
                 logger.info(f"[{keyword}] 开始输入关键词")
                 task = create_child_task(human_type_and_submit(page, keyword_item))
