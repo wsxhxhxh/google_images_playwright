@@ -316,7 +316,7 @@ class PlaywrightBrowser:
             raise RuntimeError("Browser context not initialized. Call initialize() first.")
 
         page = await self.context.new_page()
-        # await page.route("**/*", block_images)
+        await page.route("**/*", block_images)
         # 注入反爬虫脚本
         await self._inject_anti_detection_scripts(page)
 
