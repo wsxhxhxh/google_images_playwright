@@ -449,7 +449,10 @@ def make_response_handler(task_id, params, aggregated_data, tracker):
 
     async def handle_response(response):
         url = response.url
-        if 'https://www.google.com/search' in url:
+        if (
+            "google.com/search" in url
+            and ("tbm=isch" in url or "q=" in url)
+        ):
             if response.status in [301, 302]: return
             logger.info(f"捕获到搜索请求: {url}")
             await tracker.start()  # 标记开始处理
@@ -655,7 +658,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 await asyncio.wait_for(task, timeout=60.0)
 
                 # await asyncio.sleep(0.5)
-                await tracker.wait_all(timeout=5)
+                await tracker.wait_all(timeout=10)
                 logger.info(f"[Success] 完成关键词: {keyword}")
 
                 # 在循环结束后统一处理所有收集到的数据
