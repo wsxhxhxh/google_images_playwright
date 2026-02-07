@@ -632,12 +632,12 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                     )
                 )
                 await asyncio.wait_for(task, timeout=40.0)
-                await asyncio.sleep(0.5)
                 # 搜索关键词
                 logger.info(f"[{keyword}] 开始输入关键词")
                 task = create_child_task(human_type_and_submit(page, keyword_item))
                 await asyncio.wait_for(task, timeout=20.0)
 
+                await asyncio.sleep(1)
                 current_url = page.url
                 if '/sorry/' in current_url or 'sorry' in current_url:
                     logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
