@@ -549,7 +549,7 @@ async def human_type_and_submit(page, keyword_item, timeout=10000):
         """)
 
         await page.keyboard.press("Enter")
-
+        await page.wait_for_timeout(random.randint(100, 300))
 
     except PlaywrightTimeout as e:
         logger.error(f"人类输入超时: {e}")
