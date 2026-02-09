@@ -13,6 +13,7 @@ from config import Config, logger
 from deal_product_func_async import deal_info_by_async, deal_shopify_product_info_async
 from parsel_json_str import demo_with_real_data, get_related_search, get_related_items
 from platform_api import send_items_to_api, send_shopify_product_to_api, AsyncProxyPool
+from managed import ManagedPage, ResponseTracker, ThreadSafeAggregator
 
 # 全局剪贴板锁，避免多任务间剪贴板操作冲突
 clipboard_lock = asyncio.Lock()
@@ -323,61 +324,6 @@ class PlaywrightBrowser:
         return page
 
 
-class ManagedPage:
-    """页面管理器，确保页面总是被关闭"""
-
-    def __init__(self, browser, keyword):
-        self.browser = browser
-        self.keyword = keyword
-        self.page = None
-
-    async def __aenter__(self):
-        self.page = await asyncio.wait_for(
-            self.browser.create_new_page(),
-            timeout=30.0
-        )
-        logger.info(f"[{self.keyword}] 页面创建成功")
-        return self.page
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.page:
-            try:
-                await asyncio.sleep(0.3)
-                await asyncio.wait_for(self.page.close(), timeout=5.0)
-                logger.info(f"[{self.keyword}] 页面已关闭")
-            except Exception as e:
-                logger.error(f"[{self.keyword}] 关闭页面失败: {e}")
-
-
-class ResponseTracker:
-    """追踪响应处理状态"""
-
-    def __init__(self):
-        self.pending = 0
-        self.lock = asyncio.Lock()
-        self.all_done = asyncio.Event()
-        self.all_done.set()  # 初始状态为完成
-
-    async def start(self):
-        async with self.lock:
-            if self.pending == 0:
-                self.all_done.clear()
-            self.pending += 1
-
-    async def finish(self):
-        async with self.lock:
-            self.pending -= 1
-            if self.pending == 0:
-                self.all_done.set()
-
-    async def wait_all(self, timeout=10):
-        """等待所有响应处理完成"""
-        try:
-            await asyncio.wait_for(self.all_done.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
-            logger.warning(f"等待响应处理超时，还有 {self.pending} 个未完成")
-
-
 async def human_mouse_move(page, start, end, steps=30):
     for i in range(steps):
         t = i / steps
@@ -442,7 +388,7 @@ async def human_scroll_old(page, steps=6):
         await page.evaluate(f"window.scrollTo(0, {pos})")
 
 
-def make_response_handler(task_id, params, aggregated_data, tracker):
+def make_response_handler(task_id, aggregated_data, tracker):
     """
     aggregated_data: 共享的数据收集器字典，包含 new_datas, related_search, related_items
     """
@@ -454,7 +400,7 @@ def make_response_handler(task_id, params, aggregated_data, tracker):
             and ("tbm=isch" in url or "q=" in url)
         ):
             if response.status in [301, 302]: return
-            logger.info(f"捕获到搜索请求: {url}")
+            logger.info(f" : {url}")
             await tracker.start()  # 标记开始处理
             try:
                 body = await response.text()
@@ -484,20 +430,19 @@ def make_response_handler(task_id, params, aggregated_data, tracker):
                         "stat": -1,
                         "createdAt": str(datetime.datetime.now(datetime.timezone.utc))
                     }
-                    aggregated_data['new_datas'].append(new_data)
-                    aggregated_data['domains'].append(item.get("site"))
+                    await aggregated_data.add_data(new_data)
+                    await aggregated_data.add_domain(item.get("site"))
 
                 # 收集 related_search
                 related_search = await get_related_search(body)
-                logger.info(
-                    f"related search num: {len(related_search)} {related_search[:3]}...")
-                aggregated_data['related_search'].extend(related_search)
+                logger.info(f"related search num: {len(related_search)} {related_search[:3]}...")
+                await aggregated_data.add_related_search(related_search)
 
                 # 收集 related_items
                 related_items = await get_related_items(body)
                 logger.info(
                     f"related item num: {len(related_items)} {related_items[:3]}...")
-                aggregated_data['related_items'].extend(related_items)
+                await aggregated_data.add_related_items(related_items)
             except Exception as e:
                 if "Target page, context or browser has been closed" in str(e):
                     logger.warning("页面已关闭，无法获取响应体")
@@ -609,19 +554,14 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
     keyid = keyword_item["id"]
 
     # 创建共享的数据收集器
-    aggregated_data = {
-        'new_datas': [],
-        'related_search': [],
-        'related_items': [],
-        'domains': []
-    }
+    aggregated = ThreadSafeAggregator()
     tracker = ResponseTracker()  # 创建追踪器
     for attempt in range(max_retries):
         try:
             async with ManagedPage(browser, keyword) as page:
 
                 # 注册响应处理器
-                response_handler = make_response_handler(keyid, params, aggregated_data, tracker)
+                response_handler = make_response_handler(keyid, aggregated, tracker)
                 page.on('response', response_handler)
 
                 # 打开 Google 图片搜索
@@ -658,9 +598,13 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 await asyncio.wait_for(task, timeout=60.0)
 
                 # await asyncio.sleep(0.5)
+                logger.info(f"[{keyword}] 等待响应处理完成...")
                 await tracker.wait_all(timeout=10)
-                logger.info(f"[Success] 完成关键词: {keyword}")
+                logger.info(f"[{keyword}] 响应处理完成，pending={tracker.pending}")
 
+                logger.info(f"[Success] 完成关键词: {keyword}")
+                aggregated_data = await aggregated.get_all()
+                logger.info(f"[{keyword}] 获取聚合数据: {len(aggregated_data['new_datas'])} 条")
                 # 在循环结束后统一处理所有收集到的数据
                 if aggregated_data['new_datas']:
                     logger.info(f"[{keyword}] 开始处理聚合数据，共 {len(aggregated_data['new_datas'])} 条")
@@ -696,6 +640,8 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                                 await send_shopify_product_to_api(session, params, shopify_products)
 
                     logger.info(f"[{keyword}] 数据处理完成")
+                else:
+                    logger.warning(f"[{keyword}] 没有收集到任何数据")
 
                 # **检测点1: 检查页面加载后的URL**
                 current_url = page.url
