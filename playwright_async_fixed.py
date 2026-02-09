@@ -101,6 +101,20 @@ class PlaywrightBrowser:
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
+
+                # ⭐ 安全的性能优化
+                "--disable-background-networking",
+                "--disable-sync",
+                "--disable-default-apps",
+                "--disable-extensions",
+                "--mute-audio",
+
+                # ⭐ 保留 GPU，但降低占用
+                "--use-gl=desktop",  # 使用桌面 GL
+                "--enable-features=NetworkService,NetworkServiceInProcess",
+
+                # 网络优化
+                "--max-connections-per-host=6",
             ],
         )
         time_zone = random.choice(Config.FINGERPRINT_REGIONS.get(self.language_code))
