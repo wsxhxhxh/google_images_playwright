@@ -388,7 +388,7 @@ async def human_scroll_old(page, steps=6):
         await page.evaluate(f"window.scrollTo(0, {pos})")
 
 
-def make_response_handler(task_id, aggregated_data, tracker):
+def make_response_handler(task_id, params, aggregated_data, tracker):
     """
     aggregated_data: 共享的数据收集器字典，包含 new_datas, related_search, related_items
     """
@@ -400,7 +400,7 @@ def make_response_handler(task_id, aggregated_data, tracker):
             and ("tbm=isch" in url or "q=" in url)
         ):
             if response.status in [301, 302]: return
-            logger.info(f" : {url}")
+            logger.info(f"[Work-{params.worker_id}] 捕获到请求 : {url}")
             await tracker.start()  # 标记开始处理
             try:
                 body = await response.text()
@@ -435,19 +435,19 @@ def make_response_handler(task_id, aggregated_data, tracker):
 
                 # 收集 related_search
                 related_search = await get_related_search(body)
-                logger.info(f"related search num: {len(related_search)} {related_search[:3]}...")
+                logger.info(f"[Work-{params.worker_id}] related search num: {len(related_search)} {related_search[:3]}...")
                 await aggregated_data.add_related_search(related_search)
 
                 # 收集 related_items
                 related_items = await get_related_items(body)
                 logger.info(
-                    f"related item num: {len(related_items)} {related_items[:3]}...")
+                    f"[Work-{params.worker_id}] related item num: {len(related_items)} {related_items[:3]}...")
                 await aggregated_data.add_related_items(related_items)
             except Exception as e:
                 if "Target page, context or browser has been closed" in str(e):
-                    logger.warning("页面已关闭，无法获取响应体")
+                    logger.warning(f"[Work-{params.worker_id}] 页面已关闭，无法获取响应体")
                 else:
-                    logger.exception(f"无法获取响应体: {e}")
+                    logger.exception(f"[Work-{params.worker_id}] 无法获取响应体: {e}")
             finally:
                 await tracker.finish()  # 标记完成
 
@@ -561,7 +561,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
             async with ManagedPage(browser, keyword) as page:
 
                 # 注册响应处理器
-                response_handler = make_response_handler(keyid, aggregated, tracker)
+                response_handler = make_response_handler(keyid, params,aggregated, tracker)
                 page.on('response', response_handler)
 
                 # 打开 Google 图片搜索
@@ -585,11 +585,11 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 if '/sorry/' in current_url or 'sorry' in current_url:
                     logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
                     params.app.set_fail(params.proxies.get('server'))
-                    await save_text(
-                        "err_ip.txt",
-                        f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} fail\n",
-                        "a"
-                    )
+                    # await save_text(
+                    #     "err_ip.txt",
+                    #     f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} fail\n",
+                    #     "a"
+                    # )
                     return None
 
                 # 平滑滚动
@@ -648,17 +648,17 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 if '/sorry/' in current_url or 'sorry' in current_url:
                     logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
                     params.app.set_fail(params.proxies.get('server'))
-                    await save_text(
-                        "err_ip.txt",
-                        f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} fail\n",
-                        "a"
-                    )
+                    # await save_text(
+                    #     "err_ip.txt",
+                    #     f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} fail\n",
+                    #     "a"
+                    # )
                     return None
-                await save_text(
-                    "err_ip.txt",
-                    f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} success\n",
-                    "a"
-                )
+                # await save_text(
+                #     "err_ip.txt",
+                #     f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} success\n",
+                #     "a"
+                # )
                 params.app.set_success(params.proxies.get('server'))
                 return True
 
