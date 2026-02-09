@@ -32,33 +32,34 @@ class ManagedPage:
 
 
 class ResponseTracker:
-    """追踪响应处理状态"""
-
     def __init__(self):
-        self.pending = 0
         self.lock = asyncio.Lock()
-        self.all_done = asyncio.Event()
-        self.all_done.set()  # 初始状态为完成
+        self.pending = 0
+        self.event = asyncio.Event()
+        self.event.set()  # 初始状态为完成
 
     async def start(self):
         async with self.lock:
-            if self.pending == 0:
-                self.all_done.clear()
             self.pending += 1
+            self.event.clear()
 
     async def finish(self):
         async with self.lock:
-            self.pending -= 1
+            self.pending = max(0, self.pending - 1)
             if self.pending == 0:
-                self.all_done.set()
+                self.event.set()
 
     async def wait_all(self, timeout=10):
         """等待所有响应处理完成"""
         try:
-            await asyncio.wait_for(self.all_done.wait(), timeout=timeout)
+            await asyncio.wait_for(self.event.wait(), timeout=timeout)
+            logger.info(f"所有响应处理完成")
         except asyncio.TimeoutError:
-            logger.warning(f"等待响应处理超时，还有 {self.pending} 个未完成")
-
+            async with self.lock:
+                if self.pending > 0:
+                    logger.warning(f"等待响应处理超时，还有 {self.pending} 个未完成")
+                    # ⭐ 关键：超时后再等待一段时间让 finally 执行完
+                    await asyncio.sleep(1)
 
 class ThreadSafeAggregator:
     """线程安全的数据聚合器"""
