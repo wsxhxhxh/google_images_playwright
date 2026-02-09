@@ -395,61 +395,59 @@ def make_response_handler(task_id, params, aggregated_data, tracker):
 
     async def handle_response(response):
         url = response.url
-        if (
-            "google.com/search" in url
-            and ("tbm=isch" in url or "q=" in url)
-        ):
-            if response.status in [301, 302]: return
-            logger.info(f"[Work-{params.worker_id}] 捕获到请求 : {url}")
-            await tracker.start()  # 标记开始处理
-            try:
-                body = await response.text()
-                # await save_text(f"./logs/html_temp_{len(os.listdir('./logs')) + 1}.txt", body)
+        if "google.com/search" not in url: return
+        if response.status in [301, 302]: return
 
-                result = await demo_with_real_data(body)
+        await tracker.start()  # 标记开始处理
+        logger.info(f"[Work-{params.worker_id}] 捕获到请求 : {url}")
+        try:
+            body = await response.text()
+            # await save_text(f"./logs/html_temp_{len(os.listdir('./logs')) + 1}.txt", body)
 
-                # 收集 new_datas
-                for index, item in enumerate(result):
-                    if item.get("site", ".jp").endswith('.jp'):
-                        continue
-                    new_data = {
-                        "index": item.get("id"),
-                        "word": item.get("title"),
-                        "domain": item.get("site"),
-                        "link": item.get("url"),
-                        "image": item.get("image"),
-                        "info": {
-                            "desc": item.get("desc"),
-                            "brand": item.get("brand"),
-                            "price": item.get("price"),
-                            "currency": item.get("currency"),
-                            "score": item.get("score"),
-                            "review": item.get("review"),
-                        },
-                        "parent": task_id,
-                        "stat": -1,
-                        "createdAt": str(datetime.datetime.now(datetime.timezone.utc))
-                    }
-                    await aggregated_data.add_data(new_data)
-                    await aggregated_data.add_domain(item.get("site"))
+            result = await demo_with_real_data(body)
 
-                # 收集 related_search
-                related_search = await get_related_search(body)
-                logger.info(f"[Work-{params.worker_id}] related search num: {len(related_search)} {related_search[:3]}...")
-                await aggregated_data.add_related_search(related_search)
+            # 收集 new_datas
+            for index, item in enumerate(result):
+                if item.get("site", ".jp").endswith('.jp'):
+                    continue
+                new_data = {
+                    "index": item.get("id"),
+                    "word": item.get("title"),
+                    "domain": item.get("site"),
+                    "link": item.get("url"),
+                    "image": item.get("image"),
+                    "info": {
+                        "desc": item.get("desc"),
+                        "brand": item.get("brand"),
+                        "price": item.get("price"),
+                        "currency": item.get("currency"),
+                        "score": item.get("score"),
+                        "review": item.get("review"),
+                    },
+                    "parent": task_id,
+                    "stat": -1,
+                    "createdAt": str(datetime.datetime.now(datetime.timezone.utc))
+                }
+                await aggregated_data.add_data(new_data)
+                await aggregated_data.add_domain(item.get("site"))
 
-                # 收集 related_items
-                related_items = await get_related_items(body)
-                logger.info(
-                    f"[Work-{params.worker_id}] related item num: {len(related_items)} {related_items[:3]}...")
-                await aggregated_data.add_related_items(related_items)
-            except Exception as e:
-                if "Target page, context or browser has been closed" in str(e):
-                    logger.warning(f"[Work-{params.worker_id}] 页面已关闭，无法获取响应体")
-                else:
-                    logger.exception(f"[Work-{params.worker_id}] 无法获取响应体: {e}")
-            finally:
-                await tracker.finish()  # 标记完成
+            # 收集 related_search
+            related_search = await get_related_search(body)
+            logger.info(f"[Work-{params.worker_id}] related search num: {len(related_search)} {related_search[:3]}...")
+            await aggregated_data.add_related_search(related_search)
+
+            # 收集 related_items
+            related_items = await get_related_items(body)
+            logger.info(
+                f"[Work-{params.worker_id}] related item num: {len(related_items)} {related_items[:3]}...")
+            await aggregated_data.add_related_items(related_items)
+        except Exception as e:
+            if "Target page, context or browser has been closed" in str(e):
+                logger.warning(f"[Work-{params.worker_id}] 页面已关闭，无法获取响应体")
+            else:
+                logger.exception(f"[Work-{params.worker_id}] 无法获取响应体: {e}")
+        finally:
+            await tracker.finish()  # 标记完成
 
     return handle_response
 
@@ -597,10 +595,14 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 task = create_child_task(human_scroll_old(page, 3))
                 await asyncio.wait_for(task, timeout=60.0)
 
-                # await asyncio.sleep(0.5)
                 logger.info(f"[{keyword}] 等待响应处理完成...")
                 await tracker.wait_all(timeout=10)
+                await asyncio.sleep(0.5)
                 logger.info(f"[{keyword}] 响应处理完成，pending={tracker.pending}")
+
+                if tracker.pending > 0:
+                    logger.warning(f"[{keyword}] 仍有 {tracker.pending} 个未完成，再等待 2 秒")
+                    await asyncio.sleep(2)
 
                 logger.info(f"[Success] 完成关键词: {keyword}")
                 aggregated_data = await aggregated.get_all()
