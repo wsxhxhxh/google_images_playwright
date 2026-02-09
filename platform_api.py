@@ -14,38 +14,23 @@ from config import logger, Config
 
 class AsyncTokenManager:
     def __init__(self, token_expire_seconds: int = 3600 * 36):
-        """
-        token_expire_seconds: token 的有效期，单位秒
-        """
         self._token: Optional[str] = None
         self._expire_time: float = 0
-        self._lock = asyncio.Lock()  # 避免并发刷新token
+        self._lock = asyncio.Lock()
         self._token_expire_seconds = token_expire_seconds
         self.apikey = "5a11020697da4aceba7e011fc0370185"
         self._url = "https://seosystem.top/prod/api/v1/token"
-        self._connector = None
-        self._session = None
-
-    async def _ensure_session(self):
-        """
-        确保 aiohttp session 只在 event loop 中创建
-        """
-        if self._session is None:
-            self._connector = aiohttp.TCPConnector(
-                limit=100,
-                limit_per_host=20,
-                ssl=False
-            )
-            self._session = aiohttp.ClientSession(
-                connector=self._connector
-            )
 
     async def _fetch_new_token(self) -> str:
-        """
-        异步获取新token
-        """
-        await self._ensure_session()
-        async with aiohttp.ClientSession(connector=self._connector) as session:
+        """异步获取新token - 每次创建新 session"""
+        connector = aiohttp.TCPConnector(
+            limit=100,
+            limit_per_host=20,
+            ssl=False
+        )
+
+        # ✅ 创建临时 session，用完自动关闭
+        async with aiohttp.ClientSession(connector=connector) as session:
             data = {"apikey": self.apikey}
             async with session.post(self._url, data=data, ssl=False) as resp:
                 text = await resp.text()
@@ -54,9 +39,7 @@ class AsyncTokenManager:
                 return token
 
     async def get_token(self) -> str:
-        """
-        获取 token，如果过期则刷新
-        """
+        """获取 token，如果过期则刷新"""
         async with self._lock:
             now = time.time()
             if not self._token or now >= self._expire_time:
@@ -65,21 +48,13 @@ class AsyncTokenManager:
             return self._token
 
     async def refresh_token(self) -> str:
-        """
-        主动刷新 token
-        """
+        """主动刷新 token"""
         async with self._lock:
             self._token = await self._fetch_new_token()
             self._expire_time = time.time() + self._token_expire_seconds
             return self._token
 
-    async def close(self):
-        """
-        程序退出时调用，释放连接
-        """
-        if self._session:
-            await self._session.close()
-
+    # ✅ 不需要 close 方法了
 # class AsyncProxyPool:
 #     """改进的异步代理池（消除竞态条件）"""
 #
