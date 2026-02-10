@@ -410,6 +410,7 @@ def make_response_handler(task_id, params, aggregated_data, tracker):
     async def handle_response(response):
         url = response.url
         if "google.com/search" not in url: return
+        if "tbm=isch" not in url and "q=" not in url: return
         if response.status in [301, 302]: return
 
         await tracker.start()  # 标记开始处理
@@ -730,7 +731,7 @@ async def search_keyword_batch(params):
         # 串行执行
         success_count = 0
         fail_count = 0
-        tasks = params.tasks
+        tasks = params.tasks.copy()
         err_task = []
         while tasks:
             keyword_item_str = tasks.pop(0)
@@ -740,10 +741,10 @@ async def search_keyword_batch(params):
 
             if success:
                 success_count += 1
-                err_task.append(keyword_item_str)
             elif success is None:
                 # ⭐ 检测到验证页面，立即关闭浏览器并退出循环
                 logger.warning(f"检测到验证页面，立即关闭浏览器并退出")
+                err_task.append(keyword_item_str)
                 if browser:
                     try:
                         await asyncio.wait_for(browser.close(), timeout=10.0)
@@ -754,9 +755,12 @@ async def search_keyword_batch(params):
                 break  # 退出循环
             else:
                 fail_count += 1
+                err_task.append(keyword_item_str)
+
 
         err_task += tasks
-        await send_err_task()
+        if err_task:
+            await send_err_task(params, err_task)
         logger.info(f"批次完成 - 成功: {success_count}, 失败: {fail_count}")
 
     except asyncio.TimeoutError:
