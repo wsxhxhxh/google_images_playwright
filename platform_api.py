@@ -371,6 +371,11 @@ async def testapp():
 
 async def send_err_task(params, tasks):
 
+    if not tasks:
+        logger.info(f"[Work-{params.worker_id}] 没有错误任务需要发送")
+        return
+
+
     ids = []
     for task in tasks:
         t = json.loads(task)
@@ -390,10 +395,14 @@ async def send_err_task(params, tasks):
         'Connection': 'keep-alive'
     }
     url = f"https://{domain}/page_data_api.php?datatype=update_keyword_status&d={params.dbname}"
-    async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as session:
-        async with session.post(url, json=data, ssl=False) as response:
-            text = await response.text()
-            logger.info(f"send tasks result: {text}")
+    try:
+        async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as session:
+            async with session.post(url, json=data, ssl=False) as response:
+                text = await response.text()
+                logger.info(f"send tasks result: {text}")
+    except Exception as e:
+        logger.exception(f"[Work-{params.worker_id}] 发送错误任务异常: {e}")
+        return False
 
 
 
