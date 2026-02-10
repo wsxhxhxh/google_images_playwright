@@ -7,6 +7,7 @@ import aiofiles
 
 import aiohttp
 from playwright.async_api import async_playwright, BrowserContext, Page, TimeoutError as PlaywrightTimeout
+from playwright._impl._errors import Error as PlaywrightError
 from typing import Optional
 
 from config import Config, logger
@@ -579,15 +580,52 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
 
                 # 打开 Google 图片搜索
                 logger.info(f"[{keyword}] 正在打开 Google 图片搜索页面 (尝试 {attempt + 1}/{max_retries})")
-
-                task = create_child_task(
-                    page.goto(
-                        f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl",
-                        wait_until="domcontentloaded",
-                        timeout=30000
+                try:
+                    task = create_child_task(
+                        page.goto(
+                            f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl",
+                            wait_until="domcontentloaded",
+                            timeout=30000
+                        )
                     )
-                )
-                await asyncio.wait_for(task, timeout=40.0)
+                    await asyncio.wait_for(task, timeout=40.0)
+                except (PlaywrightError, asyncio.TimeoutError) as e:
+                    error_msg = str(e)
+
+                    # ✅ 代理连接失败
+                    if "ERR_PROXY_CONNECTION_FAILED" in error_msg:
+                        logger.error(f"[{keyword}] 代理连接失败: {params.proxies.get('server')}")
+                        await save_text("err_ip.txt", f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} timeout\n", "a")
+                        params.app.set_fail(params.proxies.get('server'))
+                        return None  # 标记为代理失败，需要换代理
+
+                    # ✅ 其他网络错误
+                    elif any(err in error_msg for err in [
+                        "ERR_TUNNEL_CONNECTION_FAILED",
+                        "ERR_SOCKS_CONNECTION_FAILED",
+                        "ERR_CONNECTION_REFUSED",
+                        "ERR_CONNECTION_TIMED_OUT",
+                        "net::ERR_"
+                    ]):
+                        logger.error(f"[{keyword}] 网络连接失败: {error_msg}")
+                        await save_text("err_ip.txt",f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} timeout\n","a")
+                        params.app.set_fail(params.proxies.get('server'))
+                        return None
+
+                    # ✅ 超时错误
+                    elif isinstance(e, asyncio.TimeoutError):
+                        logger.error(f"[{keyword}] 页面加载超时 (尝试 {attempt + 1}/{max_retries})")
+                        await save_text("err_ip.txt", f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} timeout\n", "a")
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(3)
+                            continue
+                        else:
+                            return False
+
+                    # ✅ 其他 Playwright 错误
+                    else:
+                        logger.exception(f"[{keyword}] 页面导航失败: {e}")
+                        raise
                 # 搜索关键词
                 logger.info(f"[{keyword}] 开始输入关键词")
                 task = create_child_task(human_type_and_submit(page, keyword_item))
@@ -598,11 +636,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 if '/sorry/' in current_url or 'sorry' in current_url:
                     logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
                     params.app.set_fail(params.proxies.get('server'))
-                    # await save_text(
-                    #     "err_ip.txt",
-                    #     f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} fail\n",
-                    #     "a"
-                    # )
+                    await save_text("err_ip.txt", f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} fail\n", "a")
                     return None
 
                 # 平滑滚动
@@ -665,17 +699,9 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 if '/sorry/' in current_url or 'sorry' in current_url:
                     logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
                     params.app.set_fail(params.proxies.get('server'))
-                    # await save_text(
-                    #     "err_ip.txt",
-                    #     f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} fail\n",
-                    #     "a"
-                    # )
+                    await save_text("err_ip.txt", f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} fail\n", "a")
                     return None
-                # await save_text(
-                #     "err_ip.txt",
-                #     f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} success\n",
-                #     "a"
-                # )
+                await save_text("err_ip.txt", f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} success\n", "a")
                 params.app.set_success(params.proxies.get('server'))
                 return True
 
