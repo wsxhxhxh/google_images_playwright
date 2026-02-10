@@ -12,7 +12,7 @@ from typing import Optional
 from config import Config, logger
 from deal_product_func_async import deal_info_by_async, deal_shopify_product_info_async
 from parsel_json_str import demo_with_real_data, get_related_search, get_related_items
-from platform_api import send_items_to_api, send_shopify_product_to_api, AsyncProxyPool
+from platform_api import send_items_to_api, send_shopify_product_to_api, AsyncProxyPool, send_err_task
 from managed import ManagedPage, ResponseTracker, ThreadSafeAggregator
 
 # 全局剪贴板锁，避免多任务间剪贴板操作冲突
@@ -730,14 +730,17 @@ async def search_keyword_batch(params):
         # 串行执行
         success_count = 0
         fail_count = 0
-
-        for keyword_item_str in params.tasks:
+        tasks = params.tasks
+        err_task = []
+        while tasks:
+            keyword_item_str = tasks.pop(0)
             keyword_item = json.loads(keyword_item_str)
             logger.info(f"开始搜索: {keyword_item['name']}")
             success = await search_single_keyword(browser, keyword_item, params)
 
             if success:
                 success_count += 1
+                err_task.append(keyword_item_str)
             elif success is None:
                 # ⭐ 检测到验证页面，立即关闭浏览器并退出循环
                 logger.warning(f"检测到验证页面，立即关闭浏览器并退出")
@@ -752,6 +755,8 @@ async def search_keyword_batch(params):
             else:
                 fail_count += 1
 
+        err_task += tasks
+        await send_err_task()
         logger.info(f"批次完成 - 成功: {success_count}, 失败: {fail_count}")
 
     except asyncio.TimeoutError:
@@ -780,20 +785,6 @@ async def test():
         worker_id = 1
         tasks = [
             "{\"id\":\"487\",\"name\":\"crossbow herbicide before and after\"}",
-            # "{\"id\":\"918\",\"name\":\"atrazine herbicide brand names\"}",
-            # "{\"id\":\"135\",\"name\":\"free crochet air plant pot\"}",
-            # "{\"id\":\"182\",\"name\":\"small air plant pot\"}",
-            # "{\"id\":\"663\",\"name\":\"2 4 d lv6 herbicide\"}",
-            # "{\"id\":\"327\",\"name\":\"celsius herbicide on centipede\"}",
-            # "{\"id\":\"1119\",\"name\":\"glyphosate only herbicide\"}",
-            # "{\"id\":\"1179\",\"name\":\"glyphosate herbicide dosage per gallon\"}",
-            # "{\"id\":\"459\",\"name\":\"crossbow herbicide lowes\"}",
-            # "{\"id\":\"973\",\"name\":\"drive 75 df herbicide label\"}",
-            # "{\"id\":\"712\",\"name\":\"2 4 d herbicide seeding\"}",
-            # "{\"id\":\"1001\",\"name\":\"drive xlr8 herbicide crabgrass\"}",
-            # "{\"id\":\"1104\",\"name\":\"glyphosate herbicide tractor supply\"}",
-            # "{\"id\":\"919\",\"name\":\"atrazine herbicide dosage per litre\"}",
-            # "{\"id\":\"668\",\"name\":\"2 4 d granular aquatic herbicide\"}",
         ]
         dbname = "t0039-c19-de-usgoimg"
         binddomain = "image8xgs.xyz"

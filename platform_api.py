@@ -54,169 +54,6 @@ class AsyncTokenManager:
             self._expire_time = time.time() + self._token_expire_seconds
             return self._token
 
-    # ✅ 不需要 close 方法了
-# class AsyncProxyPool:
-#     """改进的异步代理池（消除竞态条件）"""
-#
-#     def __init__(self):
-#         self.proxy_pool: List[Dict] = []
-#         self._lock = asyncio.Lock()
-#         self._checking = set()  # 正在检测的代理集合
-#
-#     async def init_proxy_pool(self):
-#         async with aiohttp.ClientSession() as session:
-#             async with self._lock:
-#                 for i in range(Config.MAX_RETRIES):
-#                     result = await self._fetch_proxy(session)
-#                     if isinstance(result, list):
-#                         for proxy in result:
-#                             proxy_url = f"socks5://{proxy['ip']}:{proxy['port']}"
-#
-#                             # 去重
-#                             if any(p["proxy"] == proxy_url for p in self.proxy_pool):
-#                                 continue
-#
-#                             self.proxy_pool.append({
-#                                 "proxy": proxy_url,
-#                                 "cooldown_until": 0,
-#                                 "fail_count": 0,
-#                                 "last_check": 0,
-#                                 # ⭐ 注意：这里不再初始化 in_use 字段
-#                             })
-#                         break
-#
-#         logger.info(f"代理池初始化完成，共 {len(self.proxy_pool)} 个代理")
-#
-#     async def _fetch_proxy(self, session):
-#         try:
-#             url = f"https://yoyoproxy.flsxxsmode.xyz/proxy_api7.php?key={Config.PROXY_KEY}"
-#             async with session.get(
-#                     url,
-#                     timeout=aiohttp.ClientTimeout(total=10),
-#                     ssl=False
-#             ) as resp:
-#                 if resp.status == 200:
-#                     text = await resp.text()
-#                     return json.loads(text)
-#         except Exception as e:
-#             logger.warning(f"代理获取失败: {e}")
-#         return []
-#
-#     def _in_cooldown(self, proxy_info):
-#         return time.time() < proxy_info["cooldown_until"]
-#
-#     def _set_cooldown(self, proxy_info):
-#         cooldown = random.randint(Config.COOLDOWN_MIN, Config.COOLDOWN_MAX)
-#         proxy_info["cooldown_until"] = time.time() + cooldown
-#
-#     async def _check_proxy(self, proxy: str) -> bool:
-#         """真正检测代理是否可用"""
-#         return True
-#
-#     async def get_random_proxy(self) -> Optional[str]:
-#         """
-#         改进的获取代理方法（只使用冷却机制，不使用 in_use）
-#         """
-#         max_attempts = 3
-#
-#         for attempt in range(max_attempts):
-#             async with self._lock:
-#                 # 筛选可用代理
-#                 available = [
-#                     p for p in self.proxy_pool
-#                     if not self._in_cooldown(p)
-#                        and p["proxy"] not in self._checking
-#                        and p["fail_count"] < 5
-#                 ]
-#
-#                 if not available:
-#                     total = len(self.proxy_pool)
-#                     cooling = sum(1 for p in self.proxy_pool if self._in_cooldown(p))
-#                     checking = len(self._checking)
-#                     failed = sum(1 for p in self.proxy_pool if p["fail_count"] >= 5)
-#
-#                     logger.warning(
-#                         f"无可用代理 (总数: {total}, "
-#                         f"冷却中: {cooling}, "
-#                         f"检测中: {checking}, "
-#                         f"失败>=5次: {failed})"
-#                     )
-#
-#                     # ⭐ 打印详细调试信息
-#                     logger.debug(f"前3个代理状态:")
-#                     for i, p in enumerate(self.proxy_pool[:3]):
-#                         cooldown_remaining = p["cooldown_until"] - time.time()
-#                         logger.debug(
-#                             f"  [{i}] fail={p['fail_count']}, "
-#                             f"cooldown={cooldown_remaining:.1f}s, "
-#                             f"checking={p['proxy'] in self._checking}"
-#                         )
-#
-#                     return None
-#
-#                 # 随机选择一个
-#                 random.shuffle(available)
-#                 proxy_info = available[0]
-#                 proxy = proxy_info["proxy"]
-#
-#                 # 立即标记为"检测中"
-#                 self._checking.add(proxy)
-#                 logger.debug(f"准备检测代理: {proxy}")
-#
-#             # 在锁外进行耗时的网络检测
-#             try:
-#                 ok = await self._check_proxy(proxy)
-#             except Exception as e:
-#                 logger.error(f"检测代理异常 {proxy}: {e}")
-#                 ok = False
-#
-#             # 检测完成，更新状态
-#             async with self._lock:
-#                 self._checking.discard(proxy)
-#                 proxy_info["last_check"] = time.time()
-#
-#                 if ok:
-#                     # ⭐ 只设置冷却，不设置 in_use
-#                     proxy_info["fail_count"] = 0
-#                     self._set_cooldown(proxy_info)
-#                     cooldown_time = proxy_info["cooldown_until"] - time.time()
-#                     logger.info(f"✅ 分配代理: {proxy} (冷却 {cooldown_time:.1f}秒)")
-#                     return proxy
-#                 else:
-#                     proxy_info["fail_count"] += 1
-#                     self._set_cooldown(proxy_info)
-#                     logger.warning(f"❌ 代理不可用: {proxy}, 失败次数: {proxy_info['fail_count']}")
-#
-#         logger.error(f"尝试了 {max_attempts} 个代理都失败")
-#         return None
-#
-#     async def mark_proxy_failed(self, proxy_url: str):
-#         """标记代理失败"""
-#         async with self._lock:
-#             for proxy_info in self.proxy_pool:
-#                 if proxy_info["proxy"] == proxy_url:
-#                     proxy_info["fail_count"] += 1
-#                     self._set_cooldown(proxy_info)
-#                     logger.warning(f"标记代理失败: {proxy_url}, 失败次数: {proxy_info['fail_count']}")
-#                     break
-#
-#     async def get_pool_status(self) -> Dict:
-#         """获取代理池状态（移除 in_use 统计）"""
-#         async with self._lock:
-#             total = len(self.proxy_pool)
-#             cooling = sum(1 for p in self.proxy_pool if self._in_cooldown(p))
-#             checking = len(self._checking)
-#             failed = sum(1 for p in self.proxy_pool if p["fail_count"] >= 5)
-#             available = total - cooling - checking - failed
-#
-#             return {
-#                 "total": total,
-#                 "available": available,
-#                 "cooling": cooling,
-#                 "checking": checking,
-#                 "failed": failed,
-#             }
-
 
 class AsyncProxyPool:
     """异步代理池管理类，支持代理获取、状态管理和冷却机制"""
@@ -531,6 +368,33 @@ async def testapp():
     logger.info(f"总代理数: {status['total_proxies']}")
     logger.info(f"可用代理: {status['available_proxies']}")
     logger.info(f"冷却中代理: {status['cooling_proxies']}")
+
+async def send_err_task(params, tasks):
+
+    ids = []
+    for task in tasks:
+        t = json.loads(task)
+        ids.append(t['id'])
+
+    data = {
+        "keyword_ids": ids,
+        "status": 0
+    }
+
+    domain = params.binddomain
+    headers = {
+        'User-Agent': 'Apifox/1.0.0 (https://apifox.com)',
+        'Content-Type': 'application/json',
+        'Accept': '*/*',
+        'Host': domain,
+        'Connection': 'keep-alive'
+    }
+    url = f"https://{domain}/page_data_api.php?datatype=update_keyword_status&d={params.dbname}"
+    async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as session:
+        async with session.post(url, json=data, ssl=False) as response:
+            text = await response.text()
+            logger.info(f"send tasks result: {text}")
+
 
 
 if __name__ == '__main__':
