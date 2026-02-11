@@ -729,7 +729,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
 
                 # 平滑滚动
                 logger.info(f"[{keyword}] 开始滚动页面")
-                task = create_child_task(human_scroll_old(page, 3))
+                task = create_child_task(human_scroll(page, 3))
                 await asyncio.wait_for(task, timeout=60.0)
 
                 logger.info(f"[{keyword}] 等待响应处理完成...")
