@@ -737,7 +737,7 @@ async def search_keyword_batch(params):
             proxy = await params.app.get_random_proxy()
             params.proxies = {"server": proxy}
             pool_status = await params.app.get_pool_status()
-            logger.info(str(pool_status))
+            logger.info(f"[proxy status] total: {pool_status['total_proxies']}, available: {pool_status['available_proxies']}, cooling: {pool_status['cooling_proxies']}, unavailable: {pool_status['unavailable_proxies']}")
             if proxy:
                 break
             else:
