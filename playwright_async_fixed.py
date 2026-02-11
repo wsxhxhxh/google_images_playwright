@@ -193,6 +193,18 @@ class PlaywrightBrowser:
             });
         """)
 
+        consent_cookie = {
+            'name': 'CONSENT',
+            'value': f'YES+cb.{datetime.datetime.now().strftime("%Y%m%d")}-00-p0.en+FX+111',
+            'domain': '.google.com',
+            'path': '/',
+            'expires': int(datetime.datetime.now().timestamp()) + 31536000,
+            'httpOnly': False,
+            'secure': True,
+            'sameSite': 'Lax'
+        }
+        await context.add_cookies([consent_cookie])
+
         self.context = context
         self.page = None
         self.guard_page = await self.context.new_page()
