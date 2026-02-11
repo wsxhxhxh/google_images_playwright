@@ -193,17 +193,33 @@ class PlaywrightBrowser:
             });
         """)
 
-        consent_cookie = {
-            'name': 'CONSENT',
-            'value': f'YES+cb.{datetime.datetime.now().strftime("%Y%m%d")}-00-p0.en+FX+111',
-            'domain': '.google.com',
-            'path': '/',
-            'expires': int(datetime.datetime.now().timestamp()) + 31536000,
-            'httpOnly': False,
-            'secure': True,
-            'sameSite': 'Lax'
-        }
-        await context.add_cookies([consent_cookie])
+        await context.add_cookies([
+            {
+                'name': 'CONSENT',
+                'value': 'YES+srp.gws-20260211-0-RC2.en+FX+111',
+                'domain': '.google.com',
+                'path': '/',
+                'secure': True,
+                'sameSite': 'Lax'
+            },
+            {
+                'name': 'SOCS',
+                'value': 'CAESEwgDEgk0ODE3Nzk3MjQaAmVuIAEaBgiA_LyaBg',
+                'domain': '.google.com',
+                'path': '/',
+                'secure': True,
+                'sameSite': 'Lax'
+            },
+            {
+                'name': 'NID',
+                'value': '511=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+                'domain': '.google.com',
+                'path': '/',
+                'secure': True,
+                'httpOnly': True,
+                'sameSite': 'None'
+            }
+        ])
 
         self.context = context
         self.page = None
@@ -350,6 +366,62 @@ class PlaywrightBrowser:
 
         return page
 
+
+async def handle_cookie_consent(page, timeout=5000):
+    """
+    处理 Google Cookie 同意弹窗
+
+    Args:
+        page: Playwright 页面对象
+        timeout: 等待超时时间（毫秒）
+    """
+    try:
+        # 多个可能的选择器
+        selectors = [
+            'button#L2AGLb',  # Accept all
+            'button[aria-label*="Accept"]',
+            'button:has-text("Accept all")',
+            'button:has-text("I agree")',
+            'div[role="button"]:has-text("Accept")',
+        ]
+
+        for selector in selectors:
+            try:
+                button = page.locator(selector).first
+                if await button.is_visible(timeout=timeout):
+                    logger.info(f"检测到 Cookie 弹窗，准备点击: {selector}")
+                    await asyncio.sleep(random.uniform(0.5, 1.0))
+                    await button.click()
+                    logger.info("✅ 已点击 Cookie 同意按钮")
+                    await asyncio.sleep(random.uniform(0.3, 0.8))
+                    return True
+            except:
+                continue
+
+        logger.info("ℹ️  未检测到 Cookie 弹窗")
+        return False
+
+    except Exception as e:
+        logger.warning(f"处理 Cookie 弹窗异常: {e}")
+        return False
+
+
+async def safe_goto(page, url, wait_until="domcontentloaded", timeout=30000):
+    """
+    安全的页面导航，自动处理 Cookie 弹窗
+
+    Args:
+        page: Playwright 页面对象
+        url: 目标 URL
+        wait_until: 等待状态
+        timeout: 超时时间
+    """
+    await page.goto(url, wait_until=wait_until, timeout=timeout)
+
+    # 自动处理 Cookie 弹窗
+    await handle_cookie_consent(page)
+
+    return page
 
 async def human_mouse_move(page, start, end, steps=30):
     for i in range(steps):
@@ -601,6 +673,10 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                         )
                     )
                     await asyncio.wait_for(task, timeout=40.0)
+
+                    # ⭐ 添加：自动处理 Cookie 弹窗
+                    await asyncio.sleep(0.5)  # 等待页面稳定
+                    await handle_cookie_consent(page, timeout=3000)
                 except (PlaywrightError, asyncio.TimeoutError) as e:
                     error_msg = str(e)
 
