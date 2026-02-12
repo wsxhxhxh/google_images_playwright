@@ -62,12 +62,14 @@ class AsyncProxyPool:
     def __init__(self):
         self.pool = []
         self.lock = asyncio.Lock()
-        self.session = aiohttp.ClientSession()
+        self.session = None
 
     async def close(self):
         await self.session.close()
 
     async def safe_request(self, method, url, **kwargs):
+        if not self.session:
+            self.session = aiohttp.ClientSession()
         try:
             async with self.session.request(method, url, **kwargs) as resp:
                 return await resp.text()
