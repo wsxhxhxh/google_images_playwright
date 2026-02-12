@@ -449,7 +449,7 @@ async def human_scroll(page, steps=6, wait_for_load=True):
         await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
 
         # 等待一段时间，让新内容加载
-        await asyncio.sleep(random.uniform(1.0, 2.0))
+        await asyncio.sleep(random.uniform(0.5, 1.0))
 
         if wait_for_load:
             # 获取新的页面高度
@@ -487,29 +487,29 @@ async def human_scroll_old(page, steps=6):
         await page.evaluate(f"window.scrollTo(0, {pos})")
 
 
-def make_response_handler(task_id, params, aggregated_data, tracker):
+async def response_consumer(queue, task_id, params, aggregated):
     """
-    aggregated_data: 共享的数据收集器字典，包含 new_datas, related_search, related_items
+    消费响应队列,避免阻塞事件循环
     """
+    while True:
+        response = await queue.get()
 
-    async def handle_response(response):
-        url = response.url
-        if "google.com/search" not in url: return
-        if "tbm=isch" not in url and "q=" not in url: return
-        if response.status in [301, 302]: return
+        # 停止信号
+        if response is None:
+            queue.task_done()
+            break
 
-        await tracker.start()  # 标记开始处理
-        logger.info(f"[Work-{params.worker_id}] 捕获到请求 : {url}")
         try:
+            # ⭐ 在这里做耗时操作
             body = await response.text()
-            # await save_text(f"./logs/html_temp_{len(os.listdir('./logs')) + 1}.txt", body)
 
             result = await demo_with_real_data(body)
 
-            # 收集 new_datas
-            for index, item in enumerate(result):
+            # 收集数据
+            for item in result:
                 if item.get("site", ".jp").endswith('.jp'):
                     continue
+
                 new_data = {
                     "index": item.get("id"),
                     "word": item.get("title"),
@@ -528,28 +528,26 @@ def make_response_handler(task_id, params, aggregated_data, tracker):
                     "stat": -1,
                     "createdAt": str(datetime.datetime.now(datetime.timezone.utc))
                 }
-                await aggregated_data.add_data(new_data)
-                await aggregated_data.add_domain(item.get("site"))
+                await aggregated.add_data(new_data)
+                await aggregated.add_domain(item.get("site"))
 
             # 收集 related_search
             related_search = await get_related_search(body)
-            logger.info(f"[Work-{params.worker_id}] related search num: {len(related_search)} {related_search[:3]}...")
-            await aggregated_data.add_related_search(related_search)
+            await aggregated.add_related_search(related_search)
 
             # 收集 related_items
             related_items = await get_related_items(body)
-            logger.info(
-                f"[Work-{params.worker_id}] related item num: {len(related_items)} {related_items[:3]}...")
-            await aggregated_data.add_related_items(related_items)
+            await aggregated.add_related_items(related_items)
+
+            logger.info(f"[Work-{params.worker_id}] 处理完成,数据: {len(result)}")
+
         except Exception as e:
             if "Target page, context or browser has been closed" in str(e):
-                logger.warning(f"[Work-{params.worker_id}] 页面已关闭，无法获取响应体")
+                logger.warning(f"[Work-{params.worker_id}] 页面已关闭")
             else:
-                logger.exception(f"[Work-{params.worker_id}] 无法获取响应体: {e}")
+                logger.exception(f"[Work-{params.worker_id}] 消费异常: {e}")
         finally:
-            await tracker.finish()  # 标记完成
-
-    return handle_response
+            queue.task_done()  # ⭐ 标记任务完成
 
 
 async def human_type_and_submit(page, keyword_item, timeout=10000):
@@ -652,15 +650,23 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
     keyid = keyword_item["id"]
 
     # 创建共享的数据收集器
+    response_queue = asyncio.Queue()
     aggregated = ThreadSafeAggregator()
-    tracker = ResponseTracker()  # 创建追踪器
     for attempt in range(max_retries):
         try:
             async with ManagedPage(browser, keyword) as page:
 
-                # 注册响应处理器
-                response_handler = make_response_handler(keyid, params,aggregated, tracker)
-                page.on('response', response_handler)
+                async def handle_response(response):
+                    url = response.url
+                    if "google.com/search" not in url: return
+                    if "tbm=isch" not in url and "q=" not in url: return
+                    if response.status in [301, 302]: return
+
+                    logger.info(f"[Work-{params.worker_id}] 捕获响应: {url}")
+                    await response_queue.put(response)  # 只放入队列,不阻塞
+
+                page.on('response', handle_response)
+                consumer_task = create_child_task(response_consumer(response_queue, keyid, params, aggregated), name=f"Work-{params.worker_id}")
 
                 # 打开 Google 图片搜索
                 logger.info(f"[{keyword}] 正在打开 Google 图片搜索页面 (尝试 {attempt + 1}/{max_retries})")
@@ -683,8 +689,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                     # ✅ 代理连接失败
                     if "ERR_PROXY_CONNECTION_FAILED" in error_msg:
                         logger.error(f"[{keyword}] 代理连接失败: {params.proxies.get('server')}")
-                        await save_text("err_ip.txt", f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} timeout\n", "a")
-                        params.app.set_fail(params.proxies.get('server'))
+                        await params.app.set_fail(params.atm, params.proxies)
                         return None  # 标记为代理失败，需要换代理
 
                     # ✅ 其他网络错误
@@ -696,14 +701,12 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                         "net::ERR_"
                     ]):
                         logger.error(f"[{keyword}] 网络连接失败: {error_msg}")
-                        await save_text("err_ip.txt",f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} timeout\n","a")
-                        params.app.set_fail(params.proxies.get('server'))
+                        await params.app.set_fail(params.atm, params.proxies)
                         return None
 
                     # ✅ 超时错误
                     elif isinstance(e, asyncio.TimeoutError):
                         logger.error(f"[{keyword}] 页面加载超时 (尝试 {attempt + 1}/{max_retries})")
-                        await save_text("err_ip.txt", f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} timeout\n", "a")
                         if attempt < max_retries - 1:
                             await asyncio.sleep(3)
                             continue
@@ -723,23 +726,21 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 current_url = page.url
                 if '/sorry/' in current_url or 'sorry' in current_url:
                     logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
-                    params.app.set_fail(params.proxies.get('server'))
-                    await save_text("err_ip.txt", f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} fail\n", "a")
+                    await params.app.set_fail(params.atm, params.proxies)
                     return None
 
                 # 平滑滚动
                 logger.info(f"[{keyword}] 开始滚动页面")
-                task = create_child_task(human_scroll_old(page, 3))
+                task = create_child_task(human_scroll(page, 3))
                 await asyncio.wait_for(task, timeout=60.0)
 
-                logger.info(f"[{keyword}] 等待响应处理完成...")
-                await tracker.wait_all(timeout=10)
-                await asyncio.sleep(0.5)
-                logger.info(f"[{keyword}] 响应处理完成，pending={tracker.pending}")
+                # ⭐ 等待队列清空
+                logger.info(f"[{keyword}] 等待响应队列处理完成...")
+                await response_queue.join()  # 等待所有任务完成
 
-                if tracker.pending > 0:
-                    logger.warning(f"[{keyword}] 仍有 {tracker.pending} 个未完成，再等待 2 秒")
-                    await asyncio.sleep(2)
+                # ⭐ 停止消费者
+                await response_queue.put(None)  # 发送停止信号
+                await consumer_task
 
                 logger.info(f"[Success] 完成关键词: {keyword}")
                 aggregated_data = await aggregated.get_all()
@@ -786,11 +787,9 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 current_url = page.url
                 if '/sorry/' in current_url or 'sorry' in current_url:
                     logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
-                    params.app.set_fail(params.proxies.get('server'))
-                    await save_text("err_ip.txt", f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} fail\n", "a")
+                    await params.app.set_fail(params.atm, params.proxies)
                     return None
-                await save_text("err_ip.txt", f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}, {params.proxies.get('server')} success\n", "a")
-                params.app.set_success(params.proxies.get('server'))
+                await params.app.set_success(params.atm, params.proxies)
                 return True
 
         except Exception as e:
@@ -823,9 +822,7 @@ async def search_keyword_batch(params):
     try:
         while True:
             proxy = await params.app.get_random_proxy()
-            params.proxies = {"server": proxy}
-            pool_status = await params.app.get_pool_status()
-            logger.info(f"[proxy status] total: {pool_status['total_proxies']}, available: {pool_status['available_proxies']}, cooling: {pool_status['cooling_proxies']}, unavailable: {pool_status['unavailable_proxies']}")
+            params.proxies = proxy
             if proxy:
                 break
             else:
@@ -870,7 +867,6 @@ async def search_keyword_batch(params):
             else:
                 fail_count += 1
                 err_task.append(keyword_item_str)
-
 
         err_task += tasks
         if err_task:
@@ -917,29 +913,6 @@ async def test():
 
     params = SearchTaskParams()
     await search_keyword_batch(params)
-
-
-async def verification_pass():
-    app = AsyncProxyPool()
-    await app.init_proxy_pool()
-    proxys = [{"server": p["proxy"]} for p in app.proxies]
-    for proxy in proxys:
-        browser = PlaywrightBrowser(
-            chrome_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            language_code="en-US",
-            proxies=proxy,
-            headless=False
-        )
-        await browser.initialize()
-        page = await browser.create_new_page()
-
-        await page.goto("https://google.com", wait_until="domcontentloaded")
-
-        input("输入关闭浏览器")
-
-        await page.close()
-        await browser.close()
-    print(proxys)
 
 
 if __name__ == "__main__":

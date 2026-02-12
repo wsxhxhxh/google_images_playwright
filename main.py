@@ -25,9 +25,10 @@ class SearchTaskParams:
     desimagenum: int
     languageid: int
     jxycategory_id: str
-    proxies: Dict[str, str]
+    proxies: Dict
     collect_platform_type: List[str]
     app: AsyncProxyPool
+    atm: AsyncTokenManager
 
 async def worker(worker_id: int):
     while True:
@@ -49,8 +50,6 @@ async def worker(worker_id: int):
 
             tasks = await fetch_tasks_from_api(session, dbname, datanum, binddomain)
             logger.info(f"fetch task num: {len(tasks)} {tasks[:3]}...")
-            proxy = await app.get_random_proxy()
-            proxies = {"server": proxy}
 
             params = SearchTaskParams(
                 worker_id=worker_id,
@@ -62,9 +61,10 @@ async def worker(worker_id: int):
                 desimagenum=desimagenum,
                 languageid=language_id,
                 jxycategory_id=jxycategory_id,
-                proxies=proxies,
+                proxies=None,
                 collect_platform_type=collect_platform_type,
                 app=app,
+                atm=atm,
             )
 
             await search_keyword_batch(params)
@@ -81,18 +81,10 @@ async def worker(worker_id: int):
 async def main():
     """主函数"""
     try:
-        # 初始化代理池
-        logger.info("开始初始化代理池...")
-        await asyncio.wait_for(app.init_proxy_pool(), timeout=60.0)
-        logger.info(f"代理池初始化完成：共 {len(app.proxies)} 个代理")
         logger.info("开始获取平台Token...")
         await asyncio.wait_for(atm.refresh_token(), timeout=60.0)
         token = await atm.get_token()
         logger.info(f"获取到平台Token: {token}")
-
-        if len(app.proxies) == 0:
-            logger.error("代理池为空，程序退出")
-            return
 
         # 创建任务
         tasks = []
