@@ -115,9 +115,11 @@ class AsyncProxyPool:
         logger.info(text)
 
     async def set_success(self, atm, proxy: Dict):
+        logger.info(f"send proxy success: {proxy['server']}")
         await self.set_proxy_status(atm, proxy, 1)
 
     async def set_fail(self, atm, proxy: Dict) -> None:
+        logger.info(f"send proxy failed: {proxy['server']}")
         await self.set_proxy_status(atm, proxy, 2)
 
 
