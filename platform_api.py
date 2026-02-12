@@ -12,6 +12,8 @@ from aiohttp_socks import ProxyConnector
 from config import logger, Config
 
 
+
+
 class AsyncTokenManager:
     def __init__(self, token_expire_seconds: int = 3600 * 36):
         self._token: Optional[str] = None
@@ -56,184 +58,65 @@ class AsyncTokenManager:
 
 
 class AsyncProxyPool:
-    """异步代理池管理类，支持代理获取、状态管理和冷却机制"""
 
     def __init__(self):
-        """初始化代理池（不包含异步操作）"""
-        self.proxies: List[Dict] = []  # 原始代理列表
-        self.proxy_status: Dict[str, Dict] = {}  # 代理状态字典
-        self._lock = None  # 异步锁，在init_proxy_pool中初始化
-        self._initialized = False
+        self.pool = []
+        self.lock = asyncio.Lock()
+        self.session = aiohttp.ClientSession()
 
-    async def init_proxy_pool(self):
-        """
-        初始化代理池（包含异步操作）
+    async def close(self):
+        await self.session.close()
 
-        Args:
-            proxy_url: 代理API的URL，返回格式为包含字典的列表的JSON字符串
-        """
-        # 初始化异步锁
-        self._lock = asyncio.Lock()
-        proxy_url = f"https://yoyoproxy.flsxxsmode.xyz/proxy_api7.php?key={Config.PROXY_KEY}"
-        # 从API获取代理列表
-        async with aiohttp.ClientSession() as session:
-            async with session.get(proxy_url, ssl=False) as response:
-                if response.status == 200:
-                    text = await response.text()
-                    self.proxies = json.loads(text)
-                else:
-                    raise Exception(f"Failed to fetch proxies: HTTP {response.status}")
+    async def safe_request(self, method, url, **kwargs):
+        try:
+            async with self.session.request(method, url, **kwargs) as resp:
+                return await resp.text()
 
-        # 初始化所有代理的状态
-        for proxy in self.proxies:
-            proxy_key = f"socks5://{proxy['ip']}:{proxy['port']}"
-            self.proxy_status[proxy_key] = {
-                'available': True,
-                'cooldown_until': None,
-                'fail_count': 0,  # 连续失败次数
-                'total_success': 0,
-                'total_fail': 0
-            }
+        except aiohttp.ClientError as e:
+            logger.warning(f"request error: {e}, retrying...")
 
-        self._initialized = True
-        logger.info(f"代理池初始化完成，共加载 {len(self.proxies)} 个代理")
+            # 重新创建 session
+            await self.session.close()
+            self.session = aiohttp.ClientSession()
 
-    async def get_random_proxy(self) -> Optional[str]:
-        """
-        获取一个随机可用的代理
+            async with self.session.request(method, url, **kwargs) as resp:
+                return await resp.text()
 
-        Returns:
-            代理字符串（格式：socks5://ip:port）或None（如果没有可用代理）
-        """
-        if not self._initialized:
-            raise RuntimeError("代理池未初始化，请先调用 init_proxy_pool()")
+    async def refresh_pool(self):
+        url = Config.PROXY_URL
+        text = await self.safe_request("GET", url)
+        resp_json = json.loads(text)
+        logger.info(f"refresh local proxy pool, num: {len(resp_json)}")
+        self.pool = resp_json
 
-        async with self._lock:
-            current_time = datetime.now()
-            available_proxies = []
+    async def get_random_proxy(self):
 
-            # 筛选可用代理
-            for proxy in self.proxies:
-                proxy_key = f"socks5://{proxy['ip']}:{proxy['port']}"
-                status = self.proxy_status[proxy_key]
+        async with self.lock:
 
-                # 检查冷却时间是否已过
-                if status['cooldown_until']:
-                    if current_time >= status['cooldown_until']:
-                        # 冷却期结束，恢复可用状态
-                        status['available'] = True
-                        status['cooldown_until'] = None
+            if not self.pool:
+                await self.refresh_pool()
 
-                # 收集可用代理
-                if status['available']:
-                    available_proxies.append(proxy_key)
-
-            # 返回随机代理
-            if available_proxies:
-                return random.choice(available_proxies)
-            else:
+            if not self.pool:
                 return None
 
-    async def set_success(self, proxy: str):
-        """
-        标记代理使用成功
+            proxy = self.pool.pop()
 
-        Args:
-            proxy: 代理字符串（格式：socks5://ip:port）
-        """
-        if not self._initialized:
-            raise RuntimeError("代理池未初始化，请先调用 init_proxy_pool()")
+        proxy["server"] = f"socks5://{proxy['ip']}:{proxy['port']}"
+        return proxy
 
-        async with self._lock:
-            if proxy in self.proxy_status:
-                status = self.proxy_status[proxy]
-                status['available'] = True
-                status['cooldown_until'] = None
-                status['fail_count'] = 0  # 重置连续失败次数
-                status['total_success'] += 1
-                logger.info(f"代理 {proxy} 标记为成功，状态已恢复")
+    async def set_proxy_status(self, atm, proxy, status):
+        url = Config.PROXY_STATUS.format(id=proxy['id'])
+        token = await atm.get_token()
+        data = {"status": status, "token": token}
+        headers = {"Authorization": f"Bearer {token}"}
+        text = await self.safe_request("POST", url, data=data, headers=headers)
+        logger.info(text)
 
-    async def set_fail(self, proxy: str):
-        """
-        标记代理使用失败，并设置冷却期
+    async def set_success(self, atm, proxy: Dict):
+        await self.set_proxy_status(atm, proxy, 1)
 
-        规则：
-        - 第一次失败：5分钟冷却期
-        - 第二次及以后失败：30分钟冷却期
-
-        Args:
-            proxy: 代理字符串（格式：socks5://ip:port）
-        """
-        if not self._initialized:
-            raise RuntimeError("代理池未初始化，请先调用 init_proxy_pool()")
-
-        async with self._lock:
-            if proxy in self.proxy_status:
-                status = self.proxy_status[proxy]
-                status['available'] = False
-                status['fail_count'] += 1
-                status['total_fail'] += 1
-
-                current_time = datetime.now()
-
-                # 根据失败次数设置不同的冷却时间
-                if status['fail_count'] == 1:
-                    # 第一次失败：5分钟冷却
-                    cooldown_minutes = 5
-                    status['cooldown_until'] = current_time + timedelta(minutes=5)
-                else:
-                    # 第二次及以后失败：30分钟冷却
-                    cooldown_minutes = 30
-                    status['cooldown_until'] = current_time + timedelta(minutes=30)
-
-                logger.info(f"代理 {proxy} 标记为失败（第{status['fail_count']}次），"
-                      f"冷却{cooldown_minutes}分钟至 {status['cooldown_until'].strftime('%H:%M:%S')}")
-
-    async def get_pool_status(self) -> Dict:
-        """
-        获取代理池的整体状态信息
-
-        Returns:
-            包含代理池统计信息的字典
-        """
-        if not self._initialized:
-            raise RuntimeError("代理池未初始化，请先调用 init_proxy_pool()")
-
-        async with self._lock:
-            current_time = datetime.now()
-            total_proxies = len(self.proxies)
-            available_count = 0
-            cooling_count = 0
-
-            for proxy in self.proxies:
-                proxy_key = f"socks5://{proxy['ip']}:{proxy['port']}"
-                status = self.proxy_status[proxy_key]
-
-                # 检查是否在冷却中
-                if status['cooldown_until'] and current_time < status['cooldown_until']:
-                    cooling_count += 1
-                elif status['available']:
-                    available_count += 1
-
-            return {
-                'total_proxies': total_proxies,
-                'available_proxies': available_count,
-                'cooling_proxies': cooling_count,
-                'unavailable_proxies': total_proxies - available_count - cooling_count,
-                'timestamp': current_time.strftime('%Y-%m-%d %H:%M:%S'),
-                'detailed_status': {
-                    proxy_key: {
-                        'available': status['available'],
-                        'fail_count': status['fail_count'],
-                        'total_success': status['total_success'],
-                        'total_fail': status['total_fail'],
-                        'cooldown_until': status['cooldown_until'].strftime('%Y-%m-%d %H:%M:%S')
-                        if status['cooldown_until'] else None
-                    }
-                    for proxy_key, status in self.proxy_status.items()
-                }
-            }
-
+    async def set_fail(self, atm, proxy: Dict) -> None:
+        await self.set_proxy_status(atm, proxy, 2)
 
 
 async def get_task_info(atm, session):

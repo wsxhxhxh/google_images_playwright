@@ -4,7 +4,7 @@ from aiohttp_socks import ProxyConnector
 
 
 async def test_proxy():
-    proxy_url = "socks5://172.96.89.216:1080"
+    proxy_url = "socks5://158.62.210.138:1080"
 
     connector = ProxyConnector.from_url(proxy_url)
 

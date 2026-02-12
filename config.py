@@ -183,4 +183,8 @@ class Config:
     COOLDOWN_MIN = 300  # 5 分钟
     COOLDOWN_MAX = 600  # 10 分钟
 
+
+    PROXY_URL = 'https://seosystem.top/prod/api/v1/proxy-group/4/ips'
+    PROXY_STATUS = 'https://seosystem.top/prod/api/v1/proxy-group-ips/{id}/status'
     TASK_NUM = 20
+
