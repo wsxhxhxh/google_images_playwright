@@ -68,6 +68,11 @@ async def worker(worker_id: int):
             )
 
             await search_keyword_batch(params)
+
+        except IndexError as e:
+            logger.info("not task sleep 60s")
+            await asyncio.sleep(60)
+
         except Exception as e:
             logger.exception(e)
         finally:
