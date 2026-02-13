@@ -9,7 +9,7 @@ import aiohttp
 from playwright_async_fixed import search_keyword_batch
 from config import logger, Config
 from platform_api import (AsyncTokenManager, AsyncProxyPool, get_task_info,
-                          fetch_tasks_from_api)
+                          fetch_tasks_from_api, update_task_status)
 
 
 
@@ -17,6 +17,7 @@ from platform_api import (AsyncTokenManager, AsyncProxyPool, get_task_info,
 class SearchTaskParams:
     """搜索任务参数类"""
     worker_id: int
+    task_id: int
     tasks: List
     dbname: str
     binddomain: str
@@ -33,6 +34,7 @@ class SearchTaskParams:
 async def worker(worker_id: int):
     while True:
         session = None
+        no_keyword_num = 0
         try:
             session = aiohttp.ClientSession()
             work_info = await get_task_info(atm, session)
@@ -43,12 +45,15 @@ async def worker(worker_id: int):
             jxycategory_id = work_info.get("category_id")
             desimagenum = work_info.get("image_count")
             task_name = work_info.get("task_name")
+            task_id = work_info.get("id")
             collect_platform_type = work_info.get("collect_platform_type")
             language_id = work_info.get("language_id")
             language_code = Config.LANGUAGE_CODE_MAP.get(work_info.get("language_code"), "en-US")
             logger.info(f"get work info: {task_name}")
 
             tasks = await fetch_tasks_from_api(session, dbname, datanum, binddomain)
+            if not tasks: no_keyword_num += 1
+            if no_keyword_num >= 20: await update_task_status(atm, session, task_id)
             logger.info(f"fetch task num: {len(tasks)} {tasks[:3]}...")
 
             params = SearchTaskParams(
@@ -61,6 +66,7 @@ async def worker(worker_id: int):
                 desimagenum=desimagenum,
                 languageid=language_id,
                 jxycategory_id=jxycategory_id,
+                task_id=task_id,
                 proxies=None,
                 collect_platform_type=collect_platform_type,
                 app=app,

@@ -1,17 +1,13 @@
 # platform_api.py
 import json
 import time
-import random
 import asyncio
 import traceback
-from typing import Optional, Dict, List
+from typing import Optional, Dict
 import aiohttp
-from datetime import datetime, timedelta
-from aiohttp_socks import ProxyConnector
+
 
 from config import logger, Config
-
-
 
 
 class AsyncTokenManager:
@@ -55,7 +51,6 @@ class AsyncTokenManager:
             self._token = await self._fetch_new_token()
             self._expire_time = time.time() + self._token_expire_seconds
             return self._token
-
 
 class AsyncProxyPool:
 
@@ -122,7 +117,6 @@ class AsyncProxyPool:
         logger.info(f"send proxy failed: {proxy['server']}")
         await self.set_proxy_status(atm, proxy, 2)
 
-
 async def get_task_info(atm, session):
     """获取任务信息"""
     token = await atm.get_token()
@@ -144,7 +138,6 @@ async def get_task_info(atm, session):
 
     raise Exception("获取任务信息失败，已重试10次")
 
-
 async def fetch_tasks_from_api(session, dbname, datanum, binddomain):
     """从 API 获取关键词列表"""
     try:
@@ -162,7 +155,6 @@ async def fetch_tasks_from_api(session, dbname, datanum, binddomain):
         logger.error(f"获取关键词失败: {e}")
 
     return []
-
 
 async def send_shopify_product_to_api(session, params, item):
     """异步发送Shopify产品数据到API"""
@@ -213,6 +205,52 @@ async def send_items_to_api(session, params, item):
     end_time = time.time()
     logger.info(f"send items {params.dbname} to API use {end_time - start_time:.2f} seconds")
 
+async def send_err_task(params, tasks):
+
+    if not tasks:
+        logger.info(f"[Work-{params.worker_id}] 没有错误任务需要发送")
+        return
+
+
+    ids = []
+    for task in tasks:
+        t = json.loads(task)
+        ids.append(t['id'])
+
+    data = {
+        "keyword_ids": ids,
+        "status": 0
+    }
+
+    domain = params.binddomain
+    headers = {
+        'User-Agent': 'Apifox/1.0.0 (https://apifox.com)',
+        'Content-Type': 'application/json',
+        'Accept': '*/*',
+        'Host': domain,
+        'Connection': 'keep-alive'
+    }
+    url = f"https://{domain}/page_data_api.php?datatype=update_keyword_status&d={params.dbname}"
+    try:
+        async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as session:
+            async with session.post(url, json=data, ssl=False) as response:
+                text = await response.text()
+                logger.info(f"send tasks result: {text}")
+    except Exception as e:
+        logger.exception(f"[Work-{params.worker_id}] 发送错误任务异常: {e}")
+        return False
+
+
+async def update_task_status(atm, session, task_id):
+    token = await atm.get_token()
+    url = f"https://seosystem.top/prod/api/v1/tasks/{task_id}/status"
+    headers = {"Authorization": "Bearer " + token}
+    data = {"status": 2, "token": token}
+    timeout = aiohttp.ClientTimeout(total=10)
+    async with session.post(url, headers=headers, data=data, timeout=timeout, ssl=False) as resp:
+        text = await resp.text()
+        logger.info(f"update tasks result: {text}")
+
 
 async def testapp():
     """使用示例"""
@@ -256,44 +294,14 @@ async def testapp():
     logger.info(f"可用代理: {status['available_proxies']}")
     logger.info(f"冷却中代理: {status['cooling_proxies']}")
 
-async def send_err_task(params, tasks):
 
-    if not tasks:
-        logger.info(f"[Work-{params.worker_id}] 没有错误任务需要发送")
-        return
+async def main():
+    atm = AsyncTokenManager()
 
-
-    ids = []
-    for task in tasks:
-        t = json.loads(task)
-        ids.append(t['id'])
-
-    data = {
-        "keyword_ids": ids,
-        "status": 0
-    }
-
-    domain = params.binddomain
-    headers = {
-        'User-Agent': 'Apifox/1.0.0 (https://apifox.com)',
-        'Content-Type': 'application/json',
-        'Accept': '*/*',
-        'Host': domain,
-        'Connection': 'keep-alive'
-    }
-    url = f"https://{domain}/page_data_api.php?datatype=update_keyword_status&d={params.dbname}"
-    try:
-        async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as session:
-            async with session.post(url, json=data, ssl=False) as response:
-                text = await response.text()
-                logger.info(f"send tasks result: {text}")
-    except Exception as e:
-        logger.exception(f"[Work-{params.worker_id}] 发送错误任务异常: {e}")
-        return False
-
-
+    async with aiohttp.ClientSession() as session:
+        await update_task_status(atm, session, 78)
 
 if __name__ == '__main__':
     # app = AsyncProxyPool()
-    asyncio.run(testapp())
+    asyncio.run(main())
 
