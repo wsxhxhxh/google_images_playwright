@@ -159,7 +159,7 @@ async def fetch_tasks_from_api(session, dbname, datanum, binddomain):
 async def send_shopify_product_to_api(session, params, item):
     """异步发送Shopify产品数据到API"""
     start_time = time.time()
-    api_url = "https://downloadtemp.flsxxsmode.xyz/api_product_storage.php"
+    api_url = "https://downloadtemp.flsxxsmode.xyz/2026_api_importshopifydomain.php"
     try:
         # 使用GET请求，将JSON数据作为请求体
         async with session.post(api_url, json=item, ssl=False) as response:
