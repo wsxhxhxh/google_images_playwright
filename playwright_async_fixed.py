@@ -645,17 +645,20 @@ async def human_type_with_suggestion(page, keyword):
 
 # 等待队列清空，同时监控 consumer_task 是否还活着
 async def wait_queue_safe(queue, consumer_task, params, timeout=120):
-    start = asyncio.get_event_loop().time()
-    while not queue.empty() or queue._unfinished_tasks > 0:
-        # consumer 已经挂了，直接退出，避免永久等待
-        if consumer_task.done():
-            logger.warning(f"[Work-{params.worker_id}] consumer_task 意外退出，跳出等待")
-            break
-        # 超时保护
-        if asyncio.get_event_loop().time() - start > timeout:
-            logger.warning(f"[Work-{params.worker_id}] queue.join 等待超时，强制跳出")
-            break
-        await asyncio.sleep(0.5)
+    try:
+        # 用 wait_for 给 join 加超时
+        await asyncio.wait_for(
+            asyncio.shield(queue.join()),
+            timeout=timeout
+        )
+    except asyncio.TimeoutError:
+        logger.warning(f"[Work-{params.worker_id}] queue.join 等待超时，强制跳出")
+
+    # 检查 consumer 是否意外退出
+    if consumer_task.done():
+        exc = consumer_task.exception()
+        if exc:
+            logger.error(f"[Work-{params.worker_id}] consumer_task 异常退出: {exc}")
 
 async def search_single_keyword(browser, keyword_item, params, max_retries=2):
     """
@@ -754,7 +757,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
 
                 # ⭐ 等待队列清空
                 logger.info(f"[{keyword}] 等待响应队列处理完成...")
-                await wait_queue_safe(response_queue, consumer_task, timeout=120)
+                await wait_queue_safe(response_queue, consumer_task, params, timeout=120)
 
                 # 发停止信号，等 consumer 干净退出
                 if not consumer_task.done():
