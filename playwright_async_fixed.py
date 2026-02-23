@@ -501,8 +501,7 @@ async def response_consumer(queue, task_id, params, aggregated):
 
         try:
             # ⭐ 在这里做耗时操作
-            body = await response.text()
-
+            body = await asyncio.wait_for(response.text(), timeout=15.0)
             result = await demo_with_real_data(body)
 
             # 收集数据
@@ -540,6 +539,9 @@ async def response_consumer(queue, task_id, params, aggregated):
             await aggregated.add_related_items(related_items)
 
             logger.info(f"[Work-{params.worker_id}] 处理完成,数据: {len(result)}")
+
+        except asyncio.TimeoutError:
+            logger.warning(f"[Work-{params.worker_id}] response.text() 超时，跳过此响应")
 
         except Exception as e:
             if "Target page, context or browser has been closed" in str(e):
@@ -641,6 +643,19 @@ async def human_type_with_suggestion(page, keyword):
     # 如果一直没命中,正常 Enter
     await page.keyboard.press("Enter")
 
+# 等待队列清空，同时监控 consumer_task 是否还活着
+async def wait_queue_safe(queue, consumer_task, params, timeout=120):
+    start = asyncio.get_event_loop().time()
+    while not queue.empty() or queue._unfinished_tasks > 0:
+        # consumer 已经挂了，直接退出，避免永久等待
+        if consumer_task.done():
+            logger.warning(f"[Work-{params.worker_id}] consumer_task 意外退出，跳出等待")
+            break
+        # 超时保护
+        if asyncio.get_event_loop().time() - start > timeout:
+            logger.warning(f"[Work-{params.worker_id}] queue.join 等待超时，强制跳出")
+            break
+        await asyncio.sleep(0.5)
 
 async def search_single_keyword(browser, keyword_item, params, max_retries=2):
     """
@@ -670,6 +685,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
 
                 # 打开 Google 图片搜索
                 logger.info(f"[{keyword}] 正在打开 Google 图片搜索页面 (尝试 {attempt + 1}/{max_retries})")
+                task = None
                 try:
                     task = create_child_task(
                         page.goto(
@@ -706,6 +722,8 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
 
                     # ✅ 超时错误
                     elif isinstance(e, asyncio.TimeoutError):
+                        if task:
+                            task.cancel()
                         logger.error(f"[{keyword}] 页面加载超时 (尝试 {attempt + 1}/{max_retries})")
                         if attempt < max_retries - 1:
                             await asyncio.sleep(3)
@@ -736,11 +754,25 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
 
                 # ⭐ 等待队列清空
                 logger.info(f"[{keyword}] 等待响应队列处理完成...")
-                await response_queue.join()  # 等待所有任务完成
+                await wait_queue_safe(response_queue, consumer_task, timeout=120)
 
-                # ⭐ 停止消费者
-                await response_queue.put(None)  # 发送停止信号
-                await consumer_task
+                # 发停止信号，等 consumer 干净退出
+                if not consumer_task.done():
+                    await response_queue.put(None)
+                    try:
+                        await asyncio.wait_for(consumer_task, timeout=10.0)
+                    except asyncio.TimeoutError:
+                        logger.warning(f"[Work-{params.worker_id}] consumer_task 停止超时，强制取消")
+                        consumer_task.cancel()
+                        try:
+                            await consumer_task
+                        except asyncio.CancelledError:
+                            pass
+                else:
+                    # consumer 已经退出了，看看有没有异常
+                    exc = consumer_task.exception()
+                    if exc:
+                        logger.error(f"[Work-{params.worker_id}] consumer_task 异常退出: {exc}")
 
                 logger.info(f"[Success] 完成关键词: {keyword}")
                 aggregated_data = await aggregated.get_all()
