@@ -866,7 +866,7 @@ async def search_keyword_batch(params):
             chrome_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             language_code=params.language_code,
             proxies=params.proxies,
-            headless=False
+            headless=True
         )
 
         # 初始化浏览器，带超时
