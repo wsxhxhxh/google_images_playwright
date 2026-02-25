@@ -85,7 +85,7 @@ class BrowserWrapper:
             ua = random.choice(Config.USER_AGENT)
             major = ua.split("Chrome/")[1].split(".")[0]
             logger.info(str(time_zone))
-            logger.info(self.language_code)
+            logger.info(language_code)
 
             context = await self.browser.new_context(
                 locale=time_zone["locale"],
