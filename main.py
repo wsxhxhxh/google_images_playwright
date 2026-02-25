@@ -73,7 +73,7 @@ async def worker(worker_id: int, pool):
                 atm=atm,
             )
 
-            await search_keyword_batch(params, pool)
+            await search_keyword_batch(params, pool, language_code)
 
         except IndexError as e:
             logger.info("not task sleep 60s")

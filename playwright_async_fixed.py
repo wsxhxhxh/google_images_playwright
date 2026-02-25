@@ -60,13 +60,129 @@ class BrowserWrapper:
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
-                "--disable-dev-shm-usage"
-            ]
+                "--disable-dev-shm-usage",
+
+                # ⭐ 安全的性能优化
+                "--disable-background-networking",
+                "--disable-sync",
+                "--disable-default-apps",
+                "--disable-extensions",
+                "--mute-audio",
+
+                # ⭐ 保留 GPU，但降低占用
+                "--use-gl=desktop",  # 使用桌面 GL
+                "--enable-features=NetworkService,NetworkServiceInProcess",
+
+                # 网络优化
+                "--max-connections-per-host=6",
+            ],
         )
 
-    async def new_context(self, proxy):
+    async def new_context(self, proxy, language_code):
         async with self.lock:
-            context = await self.browser.new_context(proxy=proxy)
+            time_zone = random.choice(Config.FINGERPRINT_REGIONS.get(language_code))
+            dpr_setting = random.choice(Config.DPR_SETTING)
+            ua = random.choice(Config.USER_AGENT)
+            major = ua.split("Chrome/")[1].split(".")[0]
+            logger.info(str(time_zone))
+            logger.info(self.language_code)
+
+            context = await self.browser.new_context(
+                locale=time_zone["locale"],
+                screen=dpr_setting["screen"],
+                viewport=dpr_setting["viewport"],
+                user_agent=ua,
+                device_scale_factor=dpr_setting["dpr"],
+                timezone_id=time_zone["timezone"],
+                extra_http_headers={"Accept-Language": time_zone["accept_language"], }
+            )
+            await context.add_init_script("""
+                        (() => {
+                          const original = HTMLCanvasElement.prototype.toDataURL;
+                          HTMLCanvasElement.prototype.toDataURL = function () {
+                            const ctx = this.getContext("2d");
+                            const shift = Math.floor(Math.random() * 10);
+                            ctx.fillStyle = "rgba(0,0,0,0.01)";
+                            ctx.fillRect(shift, shift, 1, 1);
+                            return original.apply(this, arguments);
+                          };
+                        })();
+                    """)
+            await context.add_init_script("""
+                        Object.defineProperty(navigator, 'webdriver', {
+                          get: () => undefined
+                        });
+                    """)
+            await context.add_init_script("""
+                        Object.defineProperty(navigator, 'languages', {{
+                          get: () => ['{language_code}', '{language}']
+                        }});
+                    """.format(language_code=language_code, language=language_code.split("-")[0]))
+            await context.add_init_script("""
+                        Object.defineProperty(document, 'fonts', {
+                          value: {
+                            check: () => true
+                          }
+                        });
+                    """)
+            await context.add_init_script("""
+                        Object.defineProperty(navigator, 'connection', {
+                          get: () => ({
+                            effectiveType: '4g',
+                            rtt: 50 + Math.floor(Math.random() * 30),
+                            downlink: 5 + Math.random() * 2,
+                            saveData: false
+                          })
+                        });
+                    """)
+            await context.add_init_script("""
+                                Object.defineProperty(navigator, 'platform', {
+                                  get: () => 'Win32'
+                                });
+                    """)
+            await context.add_init_script("""
+                        Object.defineProperty(navigator, 'userAgentData', {{
+                          get: () => ({{
+                            brands: [{{ brand: "Chromium", version: "{major}" }}],
+                            mobile: false,
+                            platform: "Windows"
+                          }})
+                        }});
+                    """.format(major=major))
+            await context.add_init_script("""
+                        Object.defineProperty(navigator, 'plugins', {
+                          get: () => [1, 2, 3, 4, 5]
+                        });
+                    """)
+
+            await context.add_cookies([
+                {
+                    'name': 'CONSENT',
+                    'value': 'YES+srp.gws-20260211-0-RC2.en+FX+111',
+                    'domain': '.google.com',
+                    'path': '/',
+                    'secure': True,
+                    'sameSite': 'Lax'
+                },
+                {
+                    'name': 'SOCS',
+                    'value': 'CAESEwgDEgk0ODE3Nzk3MjQaAmVuIAEaBgiA_LyaBg',
+                    'domain': '.google.com',
+                    'path': '/',
+                    'secure': True,
+                    'sameSite': 'Lax'
+                },
+                {
+                    'name': 'NID',
+                    'value': '511=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+                    'domain': '.google.com',
+                    'path': '/',
+                    'secure': True,
+                    'httpOnly': True,
+                    'sameSite': 'None'
+                }
+            ])
+
             wrapper = ContextWrapper(self, context, proxy)
             self.contexts.add(wrapper)
             return wrapper
@@ -111,10 +227,10 @@ class BrowserPool:
     def _select_browser(self):
         return min(self.browsers, key=lambda b: len(b.contexts))
 
-    async def acquire(self, proxy):
+    async def acquire(self, proxy, language_code):
         await self.semaphore.acquire()
         browser = self._select_browser()
-        ctx = await browser.new_context(proxy)
+        ctx = await browser.new_context(proxy, language_code)
         return ctx
 
     async def release(self, ctx_wrapper, success=True):
@@ -988,7 +1104,7 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
     return False
 
 
-async def search_keyword_batch(params, pool: BrowserPool):
+async def search_keyword_batch(params, pool: BrowserPool, language_code: str):
 
     success_count = 0
     fail_count = 0
@@ -1003,7 +1119,7 @@ async def search_keyword_batch(params, pool: BrowserPool):
         proxy = await params.app.get_random_proxy()
         params.proxies = proxy
 
-        ctx_wrapper = await pool.acquire(proxy)
+        ctx_wrapper = await pool.acquire(proxy, language_code)
 
         try:
             page = await ctx_wrapper.new_page()
