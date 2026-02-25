@@ -1,5 +1,6 @@
 # platform_api.py
 import json
+import random
 import time
 import asyncio
 import traceback
@@ -116,6 +117,23 @@ class AsyncProxyPool:
     async def set_fail(self, atm, proxy: Dict) -> None:
         logger.info(f"send proxy failed: {proxy['server']}")
         await self.set_proxy_status(atm, proxy, 2)
+
+    async def get_random_proxies(self, getnum: int):
+        async with self.lock:
+
+            if not self.pool or len(self.pool) < getnum:
+                await self.refresh_pool()
+
+            if not self.pool:
+                return None
+
+            random.shuffle(self.pool)
+            proxies = self.pool[:getnum]
+
+            for proxy in proxies:
+                proxy["server"] = f"socks5://{proxy['ip']}:{proxy['port']}"
+
+            return proxies
 
 async def get_task_info(atm, session):
     """获取任务信息"""

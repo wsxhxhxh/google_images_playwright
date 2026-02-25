@@ -6,7 +6,7 @@ from typing import Dict, List
 
 import aiohttp
 
-from playwright_async_fixed import search_keyword_batch
+from playwright_async_fixed import search_keyword_batch, BrowserPool
 from config import logger, Config
 from platform_api import (AsyncTokenManager, AsyncProxyPool, get_task_info,
                           fetch_tasks_from_api, update_task_status)
@@ -31,7 +31,7 @@ class SearchTaskParams:
     app: AsyncProxyPool
     atm: AsyncTokenManager
 
-async def worker(worker_id: int):
+async def worker(worker_id: int, pool):
     while True:
         session = None
         no_keyword_num = 0
@@ -73,7 +73,7 @@ async def worker(worker_id: int):
                 atm=atm,
             )
 
-            await search_keyword_batch(params)
+            await search_keyword_batch(params, pool)
 
         except IndexError as e:
             logger.info("not task sleep 60s")
@@ -97,10 +97,21 @@ async def main():
         token = await atm.get_token()
         logger.info(f"获取到平台Token: {token}")
 
+        logger.info("启动 BrowserPool...")
+
+        pool = BrowserPool(
+            chrome_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            max_browser=6,  # L5639 推荐
+            max_context_per_browser=3,
+            browser_fail_limit=3
+        )
+
+        await pool.start()
+
         # 创建任务
         tasks = []
         for worker_id in range(Config.TASK_NUM):
-            task = asyncio.create_task(worker(worker_id + 1), name=f"Work-{worker_id}")
+            task = asyncio.create_task(worker(worker_id + 1, pool), name=f"Work-{worker_id}")
             tasks.append(task)
 
         logger.info(f"创建了 {len(tasks)} 个 Worker 任务")
