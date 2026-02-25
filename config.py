@@ -187,4 +187,7 @@ class Config:
     PROXY_URL = 'https://seosystem.top/prod/api/v1/proxy-group/4/ips'
     PROXY_STATUS = 'https://seosystem.top/prod/api/v1/proxy-group-ips/{id}/status'
     TASK_NUM = 20
+    MAX_BROWSER = 6
+    MAX_CTX_PER_BROWSER = 3
+    TOTAL_SLOTS = MAX_BROWSER * MAX_CTX_PER_BROWSER
 

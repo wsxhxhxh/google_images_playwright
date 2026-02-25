@@ -12,10 +12,8 @@ from platform_api import (AsyncTokenManager, AsyncProxyPool, get_task_info,
                           fetch_tasks_from_api, update_task_status)
 
 
-
 @dataclass
 class SearchTaskParams:
-    """搜索任务参数类"""
     worker_id: int
     task_id: int
     tasks: List
@@ -31,7 +29,8 @@ class SearchTaskParams:
     app: AsyncProxyPool
     atm: AsyncTokenManager
 
-async def worker(worker_id: int, pool):
+
+async def worker(worker_id: int, pool: BrowserPool):
     while True:
         session = None
         no_keyword_num = 0
@@ -52,8 +51,10 @@ async def worker(worker_id: int, pool):
             logger.info(f"get work info: {task_name}")
 
             tasks = await fetch_tasks_from_api(session, dbname, datanum, binddomain)
-            if not tasks: no_keyword_num += 1
-            if no_keyword_num >= 20: await update_task_status(atm, session, task_id)
+            if not tasks:
+                no_keyword_num += 1
+            if no_keyword_num >= 20:
+                await update_task_status(atm, session, task_id)
             logger.info(f"fetch task num: {len(tasks)} {tasks[:3]}...")
 
             params = SearchTaskParams(
@@ -75,65 +76,65 @@ async def worker(worker_id: int, pool):
 
             await search_keyword_batch(params, pool, language_code)
 
-        except IndexError as e:
-            logger.info("not task sleep 60s")
+        except IndexError:
+            logger.info("no task, sleep 60s")
             await asyncio.sleep(60)
 
         except Exception as e:
             logger.exception(e)
+
         finally:
-            # ⭐ 关闭session
             if session:
                 try:
                     await session.close()
                 except Exception as e:
-                    logger.warning(f"关闭session失败: {e}")
+                    logger.warning(f"关闭 session 失败: {e}")
+
 
 async def main():
-    """主函数"""
     try:
-        logger.info("开始获取平台Token...")
+        logger.info("获取平台 Token...")
         await asyncio.wait_for(atm.refresh_token(), timeout=60.0)
         token = await atm.get_token()
-        logger.info(f"获取到平台Token: {token}")
+        logger.info(f"Token: {token}")
 
-        logger.info("启动 BrowserPool...")
+        logger.info(f"拉取 {Config.TOTAL_SLOTS} 个代理用于预热...")
+        initial_proxies = await app.get_random_proxies(Config.TOTAL_SLOTS)
+
+        # language_code 用第一个 worker 的语言即可，后续每个 context 自己的 locale 由指纹随机决定
+        # 如果你有多语言需求，可以把 language_code 列表传进来分配
+        default_language = "en-US"
 
         pool = BrowserPool(
             chrome_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            max_browser=6,  # L5639 推荐
-            max_context_per_browser=3,
-            browser_fail_limit=3
+            max_browser=Config.MAX_BROWSER,
+            max_context_per_browser=Config.MAX_CTX_PER_BROWSER,
+            browser_fail_limit=3,
+            startup_jitter=30.0,    # 18 个 context 在 0-30 秒内随机错峰启动
         )
 
-        await pool.start()
+        # 新版 start 需要传入代理列表和语言
+        await pool.start(initial_proxies=initial_proxies, language_code=default_language)
 
-        # 创建任务
-        tasks = []
+        worker_tasks = []
         for worker_id in range(Config.TASK_NUM):
-            task = asyncio.create_task(worker(worker_id + 1, pool), name=f"Work-{worker_id}")
-            tasks.append(task)
+            t = asyncio.create_task(worker(worker_id + 1, pool), name=f"Work-{worker_id}")
+            worker_tasks.append(t)
 
-        logger.info(f"创建了 {len(tasks)} 个 Worker 任务")
-        await asyncio.gather(*tasks)
+        logger.info(f"创建了 {len(worker_tasks)} 个 Worker")
+        await asyncio.gather(*worker_tasks)
 
     except asyncio.TimeoutError:
-        logger.error("代理池初始化超时")
+        logger.error("初始化超时")
     except Exception as e:
         logger.exception(f"主函数异常: {e}")
 
 
 if __name__ == '__main__':
-    data = []
     try:
         app = AsyncProxyPool()
         atm = AsyncTokenManager()
         asyncio.run(main())
-
-    except FileNotFoundError:
-        logger.error("找不到 scratch_3.json 文件")
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON 解析错误: {e}")
     except KeyboardInterrupt:
         logger.info("程序被用户中断")
     except Exception as e:

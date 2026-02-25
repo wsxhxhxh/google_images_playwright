@@ -16,41 +16,251 @@ from parsel_json_str import demo_with_real_data, get_related_search, get_related
 from platform_api import send_items_to_api, send_shopify_product_to_api, send_err_task
 from managed import ManagedPage, ResponseTracker, ThreadSafeAggregator
 
-# 全局剪贴板锁，避免多任务间剪贴板操作冲突
-clipboard_lock = asyncio.Lock()
+
+# ===== 指纹注入 =====
+
+async def inject_fingerprint(context: BrowserContext, ua: str):
+    """
+    统一的指纹注入入口，修复了：
+    - brands 三元组（原来只有一个 Chromium，会被识别）
+    - plugins 结构（原来是数字数组，真实是 PluginArray 对象）
+    - canvas 噪声
+    - webdriver / languages / platform / connection / fonts / userAgentData
+    """
+    major = ua.split("Chrome/")[1].split(".")[0]
+
+    # --- canvas 噪声 ---
+    await context.add_init_script("""
+        (() => {
+          const original = HTMLCanvasElement.prototype.toDataURL;
+          HTMLCanvasElement.prototype.toDataURL = function() {
+            const ctx2d = this.getContext('2d');
+            if (ctx2d) {
+              const imageData = ctx2d.getImageData(0, 0, 1, 1);
+              imageData.data[0] = imageData.data[0] ^ (Math.floor(Math.random() * 3));
+              ctx2d.putImageData(imageData, 0, 0);
+            }
+            return original.apply(this, arguments);
+          };
+        })();
+    """)
+
+    # --- webdriver ---
+    await context.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    """)
+
+    # --- platform ---
+    await context.add_init_script("""
+        Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+    """)
+
+    # --- connection ---
+    await context.add_init_script("""
+        Object.defineProperty(navigator, 'connection', {
+          get: () => ({
+            effectiveType: '4g',
+            rtt: 50 + Math.floor(Math.random() * 30),
+            downlink: 5 + Math.random() * 2,
+            saveData: false
+          })
+        });
+    """)
+
+    # --- fonts ---
+    await context.add_init_script("""
+        Object.defineProperty(document, 'fonts', {
+          value: { check: () => true }
+        });
+    """)
+
+    # --- userAgentData：brands 必须是三元组 ---
+    await context.add_init_script(f"""
+        Object.defineProperty(navigator, 'userAgentData', {{
+          get: () => ({{
+            brands: [
+              {{ brand: "Not_A Brand",   version: "8"    }},
+              {{ brand: "Chromium",      version: "{major}" }},
+              {{ brand: "Google Chrome", version: "{major}" }}
+            ],
+            mobile: false,
+            platform: "Windows"
+          }})
+        }});
+    """)
+
+    # --- plugins：必须是 PluginArray 结构，不能是数字数组 ---
+    await context.add_init_script("""
+        (() => {
+          const makePlugin = (name, filename, description, mimeTypes) => {
+            const plugin = Object.create(Plugin.prototype);
+            Object.defineProperties(plugin, {
+              name:        { value: name,        enumerable: true },
+              filename:    { value: filename,    enumerable: true },
+              description: { value: description, enumerable: true },
+              length:      { value: mimeTypes.length, enumerable: true },
+            });
+            mimeTypes.forEach((mt, i) => {
+              plugin[i] = mt;
+            });
+            return plugin;
+          };
+
+          const mimeType = (type, suffixes, description, plugin) => {
+            const mt = Object.create(MimeType.prototype);
+            Object.defineProperties(mt, {
+              type:        { value: type,        enumerable: true },
+              suffixes:    { value: suffixes,    enumerable: true },
+              description: { value: description, enumerable: true },
+              enabledPlugin: { value: plugin,   enumerable: true },
+            });
+            return mt;
+          };
+
+          const pdfPlugin = makePlugin(
+            'PDF Viewer', 'internal-pdf-viewer',
+            'Portable Document Format', []
+          );
+          const chromePdf = makePlugin(
+            'Chrome PDF Viewer', 'internal-pdf-viewer',
+            'Portable Document Format', []
+          );
+          const nativePdf = makePlugin(
+            'Chromium PDF Viewer', 'mhjfbmdgcfjbbpaeojofohoefgiehjai',
+            'Portable Document Format', []
+          );
+          const nacl = makePlugin(
+            'Native Client', 'internal-nacl-plugin',
+            '', []
+          );
+          const widevine = makePlugin(
+            'Widevine Content Decryption Module',
+            'widevinecdmadapter.dll',
+            'Enables Widevine licenses for playback of HTML audio/video content.', []
+          );
+
+          const plugins = [pdfPlugin, chromePdf, nativePdf, nacl, widevine];
+
+          Object.defineProperty(navigator, 'plugins', {
+            get: () => {
+              const arr = Object.create(PluginArray.prototype);
+              Object.defineProperty(arr, 'length', { value: plugins.length });
+              plugins.forEach((p, i) => { arr[i] = p; });
+              arr.item = (i) => plugins[i];
+              arr.namedItem = (name) => plugins.find(p => p.name === name) || null;
+              arr.refresh = () => {};
+              return arr;
+            }
+          });
+        })();
+    """)
+
+    # --- speechSynthesis：真实浏览器有语音列表，空列表很异常 ---
+    await context.add_init_script("""
+        (() => {
+          const voices = [
+            { default: true,  lang: 'en-US', localService: true,
+              name: 'Microsoft David - English (United States)',
+              voiceURI: 'Microsoft David - English (United States)' },
+            { default: false, lang: 'en-US', localService: true,
+              name: 'Microsoft Zira - English (United States)',
+              voiceURI: 'Microsoft Zira - English (United States)' },
+            { default: false, lang: 'en-GB', localService: true,
+              name: 'Microsoft Hazel - English (United Kingdom)',
+              voiceURI: 'Microsoft Hazel - English (United Kingdom)' },
+          ];
+          if (window.speechSynthesis) {
+            window.speechSynthesis.getVoices = () => voices;
+          }
+        })();
+    """)
 
 
-# ===== BrowserPool 开始 =====
+# ===== 间隔函数 =====
+
+async def human_like_sleep():
+    """
+    长尾分布的关键词间隔，模拟真实用户看结果的时间：
+    - 75%：8-25秒（正常浏览结果）
+    - 17%：30-60秒（停下来多看几眼）
+    - 8%： 60-120秒（去倒水/厕所）
+    """
+    r = random.random()
+    if r < 0.75:
+        t = random.uniform(8, 25)
+    elif r < 0.92:
+        t = random.uniform(30, 60)
+    else:
+        t = random.uniform(60, 120)
+    logger.info(f"关键词间隔 {t:.1f}s")
+    await asyncio.sleep(t)
+
+
+# ===== ContextWrapper =====
 
 class ContextWrapper:
-    def __init__(self, browser_wrapper, context, proxy):
+    """
+    封装一个 BrowserContext + Page，支持多关键词复用。
+
+    生命周期：
+      创建 → 处理 N 个关键词 → retire()
+      N = max_keywords（随机 5-15），到了就退休，不强制杀掉
+    """
+
+    def __init__(self, browser_wrapper: "BrowserWrapper", context: BrowserContext,
+                 proxy: dict, language_code: str):
         self.browser_wrapper = browser_wrapper
         self.context = context
         self.proxy = proxy
-        self.use_count = 0
-        self.fail_count = 0
+        self.language_code = language_code
+
+        # 寿命：随机 5-15 个关键词
+        self.max_keywords = random.randint(5, 15)
+        self.keyword_count = 0          # 已处理关键词数
+
+        self.fail_count = 0             # 普通失败次数
+        self.consecutive_sorry = 0      # 连续触发 sorry 次数
+
+        self.page: Optional[Page] = None
         self.closed = False
+        self.in_use = False
 
-    async def new_page(self):
-        self.use_count += 1
-        return await self.context.new_page()
+    @property
+    def should_retire(self) -> bool:
+        """是否应该退休（寿命到了，或者连续 sorry ≥ 2）"""
+        return self.keyword_count >= self.max_keywords or self.consecutive_sorry >= 2
 
-    async def close(self):
-        if not self.closed:
-            try:
-                await self.context.close()
-            except:
-                pass
-            self.closed = True
+    async def ensure_page(self):
+        """确保 page 存在且未关闭"""
+        if self.page is None or self.page.is_closed():
+            self.page = await self.context.new_page()
+            await self.page.route("**/*", block_images)
+        return self.page
 
+    async def retire(self):
+        """退休：关闭 context，从 browser_wrapper 中移除自己"""
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            await self.context.close()
+        except Exception:
+            pass
+        self.browser_wrapper.contexts.discard(self)
+        logger.info(f"Context 退休 (proxy={self.proxy.get('server')}, "
+                    f"keywords={self.keyword_count}/{self.max_keywords}, "
+                    f"sorry={self.consecutive_sorry})")
+
+
+# ===== BrowserWrapper =====
 
 class BrowserWrapper:
-    def __init__(self, playwright, chrome_path):
+    def __init__(self, playwright, chrome_path: str):
         self.playwright = playwright
         self.chrome_path = chrome_path
         self.browser = None
         self.fail_count = 0
-        self.contexts = set()
+        self.contexts: set[ContextWrapper] = set()
         self.lock = asyncio.Lock()
 
     async def start(self):
@@ -61,162 +271,124 @@ class BrowserWrapper:
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
-
-                # ⭐ 安全的性能优化
                 "--disable-background-networking",
                 "--disable-sync",
                 "--disable-default-apps",
                 "--disable-extensions",
                 "--mute-audio",
-
-                # ⭐ 保留 GPU，但降低占用
-                "--use-gl=desktop",  # 使用桌面 GL
+                "--use-gl=desktop",
                 "--enable-features=NetworkService,NetworkServiceInProcess",
-
-                # 网络优化
                 "--max-connections-per-host=6",
             ],
         )
 
-    async def new_context(self, proxy, language_code):
+    async def new_context(self, proxy: dict, language_code: str) -> ContextWrapper:
         async with self.lock:
             time_zone = random.choice(Config.FINGERPRINT_REGIONS.get(language_code))
             dpr_setting = random.choice(Config.DPR_SETTING)
             ua = random.choice(Config.USER_AGENT)
-            major = ua.split("Chrome/")[1].split(".")[0]
-            logger.info(str(time_zone))
-            logger.info(language_code)
 
             context = await self.browser.new_context(
+                proxy=proxy,
                 locale=time_zone["locale"],
                 screen=dpr_setting["screen"],
                 viewport=dpr_setting["viewport"],
                 user_agent=ua,
                 device_scale_factor=dpr_setting["dpr"],
                 timezone_id=time_zone["timezone"],
-                extra_http_headers={"Accept-Language": time_zone["accept_language"], }
+                extra_http_headers={"Accept-Language": time_zone["accept_language"]}
             )
-            await context.add_init_script("""
-                        (() => {
-                          const original = HTMLCanvasElement.prototype.toDataURL;
-                          HTMLCanvasElement.prototype.toDataURL = function () {
-                            const ctx = this.getContext("2d");
-                            const shift = Math.floor(Math.random() * 10);
-                            ctx.fillStyle = "rgba(0,0,0,0.01)";
-                            ctx.fillRect(shift, shift, 1, 1);
-                            return original.apply(this, arguments);
-                          };
-                        })();
-                    """)
-            await context.add_init_script("""
-                        Object.defineProperty(navigator, 'webdriver', {
-                          get: () => undefined
-                        });
-                    """)
-            await context.add_init_script("""
-                        Object.defineProperty(navigator, 'languages', {{
-                          get: () => ['{language_code}', '{language}']
-                        }});
-                    """.format(language_code=language_code, language=language_code.split("-")[0]))
-            await context.add_init_script("""
-                        Object.defineProperty(document, 'fonts', {
-                          value: {
-                            check: () => true
-                          }
-                        });
-                    """)
-            await context.add_init_script("""
-                        Object.defineProperty(navigator, 'connection', {
-                          get: () => ({
-                            effectiveType: '4g',
-                            rtt: 50 + Math.floor(Math.random() * 30),
-                            downlink: 5 + Math.random() * 2,
-                            saveData: false
-                          })
-                        });
-                    """)
-            await context.add_init_script("""
-                                Object.defineProperty(navigator, 'platform', {
-                                  get: () => 'Win32'
-                                });
-                    """)
-            await context.add_init_script("""
-                        Object.defineProperty(navigator, 'userAgentData', {{
-                          get: () => ({{
-                            brands: [{{ brand: "Chromium", version: "{major}" }}],
-                            mobile: false,
-                            platform: "Windows"
-                          }})
-                        }});
-                    """.format(major=major))
-            await context.add_init_script("""
-                        Object.defineProperty(navigator, 'plugins', {
-                          get: () => [1, 2, 3, 4, 5]
-                        });
-                    """)
 
+            # 注入语言
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'languages', {{
+                  get: () => ['{lc}', '{l}']
+                }});
+            """.format(lc=language_code, l=language_code.split("-")[0]))
+
+            # 注入所有指纹
+            await inject_fingerprint(context, ua)
+
+            # Google cookie（跳过同意弹窗）
             await context.add_cookies([
                 {
                     'name': 'CONSENT',
                     'value': 'YES+srp.gws-20260211-0-RC2.en+FX+111',
-                    'domain': '.google.com',
-                    'path': '/',
-                    'secure': True,
-                    'sameSite': 'Lax'
+                    'domain': '.google.com', 'path': '/',
+                    'secure': True, 'sameSite': 'Lax'
                 },
                 {
                     'name': 'SOCS',
                     'value': 'CAESEwgDEgk0ODE3Nzk3MjQaAmVuIAEaBgiA_LyaBg',
-                    'domain': '.google.com',
-                    'path': '/',
-                    'secure': True,
-                    'sameSite': 'Lax'
+                    'domain': '.google.com', 'path': '/',
+                    'secure': True, 'sameSite': 'Lax'
                 },
                 {
                     'name': 'NID',
                     'value': '511=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-                    'domain': '.google.com',
-                    'path': '/',
-                    'secure': True,
-                    'httpOnly': True,
-                    'sameSite': 'None'
+                    'domain': '.google.com', 'path': '/',
+                    'secure': True, 'httpOnly': True, 'sameSite': 'None'
                 }
             ])
 
-            wrapper = ContextWrapper(self, context, proxy)
+            wrapper = ContextWrapper(self, context, proxy, language_code)
             self.contexts.add(wrapper)
             return wrapper
-
-    async def remove_context(self, ctx_wrapper):
-        async with self.lock:
-            await ctx_wrapper.close()
-            self.contexts.discard(ctx_wrapper)
 
     async def restart(self):
         try:
             await self.browser.close()
-        except:
+        except Exception:
             pass
         await self.start()
         self.fail_count = 0
+        logger.info("Browser 熔断重启完成")
 
+
+# ===== BrowserPool =====
 
 class BrowserPool:
+    """
+    Context 复用池。
 
-    def __init__(self, chrome_path, max_browser=4,
-                 max_context_per_browser=2,
-                 browser_fail_limit=3):
+    核心语义变化（对比旧版）：
+      旧：acquire=新建context，release=销毁context
+      新：acquire=从idle队列取，release=判断是否退休，没退休放回队列
 
+    idle_queue 里存放的都是空闲的、未退休的 ContextWrapper。
+    退休或出错时，pool 自动异步补充一个新的进来，保持池子大小稳定。
+    """
+
+    def __init__(
+        self,
+        chrome_path: str,
+        max_browser: int = 4,
+        max_context_per_browser: int = 2,
+        browser_fail_limit: int = 3,
+        startup_jitter: float = 30.0,   # 启动错峰最大秒数
+    ):
         self.chrome_path = chrome_path
         self.max_browser = max_browser
         self.max_context_per_browser = max_context_per_browser
         self.browser_fail_limit = browser_fail_limit
+        self.startup_jitter = startup_jitter
+
+        self.total_slots = max_browser * max_context_per_browser
 
         self.playwright = None
-        self.browsers = []
-        self.semaphore = asyncio.Semaphore(max_browser * max_context_per_browser)
+        self.browsers: list[BrowserWrapper] = []
 
-    async def start(self):
+        # 空闲队列：所有可用的 ContextWrapper
+        self._idle_queue: asyncio.Queue[ContextWrapper] = asyncio.Queue()
+
+        # 补充锁：防止并发触发多次补充
+        self._replenish_lock = asyncio.Lock()
+
+    async def start(self, initial_proxies: list[dict], language_code: str):
+        """
+        启动浏览器，预热所有 context。
+        启动时加随机错峰延迟，避免200个代理同时打 Google。
+        """
         self.playwright = await async_playwright().start()
 
         for _ in range(self.max_browser):
@@ -224,44 +396,103 @@ class BrowserPool:
             await bw.start()
             self.browsers.append(bw)
 
-    def _select_browser(self):
+        logger.info(f"启动 {self.max_browser} 个 Browser，预热 {self.total_slots} 个 Context...")
+
+        proxy_iter = iter(initial_proxies)
+        tasks = []
+        for i in range(self.total_slots):
+            proxy = next(proxy_iter, None)
+            if proxy is None:
+                break
+            # 错峰延迟：每个 context 随机延迟 0 ~ startup_jitter 秒
+            jitter = random.uniform(0, self.startup_jitter)
+            tasks.append(self._delayed_create_context(jitter, proxy, language_code))
+
+        await asyncio.gather(*tasks)
+        logger.info(f"BrowserPool 预热完成，idle={self._idle_queue.qsize()}")
+
+    async def _delayed_create_context(self, delay: float, proxy: dict, language_code: str):
+        await asyncio.sleep(delay)
+        await self._create_and_enqueue(proxy, language_code)
+
+    async def _create_and_enqueue(self, proxy: dict, language_code: str):
+        """创建一个新的 ContextWrapper 并放入空闲队列"""
+        browser = self._select_browser()
+        try:
+            ctx = await browser.new_context(proxy, language_code)
+            await self._idle_queue.put(ctx)
+            logger.debug(f"新 Context 入队 (proxy={proxy.get('server')}, idle={self._idle_queue.qsize()})")
+        except Exception as e:
+            logger.error(f"创建 Context 失败 (proxy={proxy.get('server')}): {e}")
+            browser.fail_count += 1
+            if browser.fail_count >= self.browser_fail_limit:
+                logger.warning("Browser 熔断重启")
+                await browser.restart()
+
+    def _select_browser(self) -> BrowserWrapper:
         return min(self.browsers, key=lambda b: len(b.contexts))
 
-    async def acquire(self, proxy, language_code):
-        await self.semaphore.acquire()
-        browser = self._select_browser()
-        ctx = await browser.new_context(proxy, language_code)
-        return ctx
+    async def acquire(self, timeout: float = 60.0) -> ContextWrapper:
+        """
+        从空闲队列取一个 ContextWrapper。
+        如果队列暂时为空（全部在用中），等待直到有归还的。
+        """
+        try:
+            ctx = await asyncio.wait_for(self._idle_queue.get(), timeout=timeout)
+            ctx.in_use = True
+            return ctx
+        except asyncio.TimeoutError:
+            raise TimeoutError(f"BrowserPool.acquire 超时 ({timeout}s)，当前 idle={self._idle_queue.qsize()}")
 
-    async def release(self, ctx_wrapper, success=True):
-        browser = ctx_wrapper.browser_wrapper
+    async def release(self, ctx: ContextWrapper, proxy: dict, language_code: str, success: bool = True):
+        """
+        归还 ContextWrapper。
+
+        - 如果 should_retire → 退休，异步补充一个新的
+        - 如果 success=False → fail_count++，连续 sorry 由调用方自行维护
+        - 否则放回队列继续用
+        """
+        ctx.in_use = False
 
         if not success:
-            browser.fail_count += 1
+            ctx.fail_count += 1
 
-        await browser.remove_context(ctx_wrapper)
+        if ctx.should_retire or ctx.closed:
+            # 退休
+            await ctx.retire()
+            # 异步补充，不阻塞调用方
+            asyncio.create_task(
+                self._replenish(proxy, language_code),
+                name="pool-replenish"
+            )
+        else:
+            # 放回队列
+            await self._idle_queue.put(ctx)
+            logger.debug(f"Context 归还队列 (keywords={ctx.keyword_count}/{ctx.max_keywords}, "
+                         f"idle={self._idle_queue.qsize()})")
 
-        if browser.fail_count >= self.browser_fail_limit:
-            logger.warning("Browser 熔断重启")
-            await browser.restart()
-
-        self.semaphore.release()
+    async def _replenish(self, proxy: dict, language_code: str):
+        """补充一个新 Context 到池子"""
+        async with self._replenish_lock:
+            # 稍微错开一下，避免退休潮同时补充
+            await asyncio.sleep(random.uniform(1, 5))
+            await self._create_and_enqueue(proxy, language_code)
 
     async def shutdown(self):
         for b in self.browsers:
             try:
                 await b.browser.close()
-            except:
+            except Exception:
                 pass
         await self.playwright.stop()
+        logger.info("BrowserPool shutdown 完成")
 
-# ===== BrowserPool 结束 =====
 
+# ===== 工具函数 =====
 
 async def block_images(route):
     url = route.request.url.lower()
     rtype = route.request.resource_type
-
     if rtype == "image" or url.endswith(Config.IMAGE_EXTENSIONS):
         await route.abort()
     else:
@@ -270,19 +501,13 @@ async def block_images(route):
 
 def create_child_task(coro, *, name=None, suffix=None):
     parent = asyncio.current_task()
-
-    if parent:
-        parent_name = parent.get_name()
-    else:
-        parent_name = "Main"
-
+    parent_name = parent.get_name() if parent else "Main"
     if name:
         task_name = name
     elif suffix:
         task_name = f"{parent_name}/{suffix}"
     else:
         task_name = parent_name
-
     return asyncio.create_task(coro, name=task_name)
 
 
@@ -291,405 +516,35 @@ async def save_text(path: str, content: str, mode: str = "w"):
         await f.write(content)
 
 
-class PlaywrightBrowser:
-    def __init__(
-            self,
-            chrome_path: str,
-            language_code: str = "en-US",
-            proxies: dict = None,
-            headless: bool = False,
-    ):
-        """
-        初始化 Playwright 浏览器配置
-
-        Args:
-            chrome_path: Chrome 可执行文件路径
-            headless: 是否无头模式
-            viewport: 视口大小，默认 1366x768
-            locale: 语言设置
-            timezone_id: 时区设置
-        """
-        self.chrome_path = chrome_path
-        self.language_code = language_code
-        self.proxies = proxies
-        self.headless = headless
-
-        self.playwright = None
-        self.context: Optional[BrowserContext] = None
-        self.page: Optional[Page] = None
-
-    async def __aenter__(self):
-        """异步上下文管理器入口"""
-        await self.initialize()
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """异步上下文管理器退出"""
-        await self.close()
-
-    async def initialize(self):
-        """初始化 Playwright 和浏览器上下文"""
-        self.playwright = await async_playwright().start()
-
-        self.browser = await self.playwright.chromium.launch(
-            executable_path=self.chrome_path,
-            headless=self.headless,
-            timeout=30000,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-
-                # ⭐ 安全的性能优化
-                "--disable-background-networking",
-                "--disable-sync",
-                "--disable-default-apps",
-                "--disable-extensions",
-                "--mute-audio",
-
-                # ⭐ 保留 GPU，但降低占用
-                "--use-gl=desktop",  # 使用桌面 GL
-                "--enable-features=NetworkService,NetworkServiceInProcess",
-
-                # 网络优化
-                "--max-connections-per-host=6",
-            ],
-        )
-        time_zone = random.choice(Config.FINGERPRINT_REGIONS.get(self.language_code))
-        dpr_setting = random.choice(Config.DPR_SETTING)
-        ua = random.choice(Config.USER_AGENT)
-        major = ua.split("Chrome/")[1].split(".")[0]
-        logger.info(str(time_zone))
-        logger.info(self.language_code)
-        context = await self.browser.new_context(
-            locale=time_zone["locale"],
-            screen=dpr_setting["screen"],
-            viewport=dpr_setting["viewport"],
-            user_agent=ua,
-            device_scale_factor=dpr_setting["dpr"],
-            timezone_id=time_zone["timezone"],
-            extra_http_headers={"Accept-Language": time_zone["accept_language"], }
-        )
-
-        await context.add_init_script("""
-            (() => {
-              const original = HTMLCanvasElement.prototype.toDataURL;
-              HTMLCanvasElement.prototype.toDataURL = function () {
-                const ctx = this.getContext("2d");
-                const shift = Math.floor(Math.random() * 10);
-                ctx.fillStyle = "rgba(0,0,0,0.01)";
-                ctx.fillRect(shift, shift, 1, 1);
-                return original.apply(this, arguments);
-              };
-            })();
-        """)
-        await context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {
-              get: () => undefined
-            });
-        """)
-        await context.add_init_script("""
-            Object.defineProperty(navigator, 'languages', {{
-              get: () => ['{language_code}', '{language}']
-            }});
-        """.format(language_code=self.language_code, language=self.language_code.split("-")[0]))
-        await context.add_init_script("""
-            Object.defineProperty(document, 'fonts', {
-              value: {
-                check: () => true
-              }
-            });
-        """)
-        await context.add_init_script("""
-            Object.defineProperty(navigator, 'connection', {
-              get: () => ({
-                effectiveType: '4g',
-                rtt: 50 + Math.floor(Math.random() * 30),
-                downlink: 5 + Math.random() * 2,
-                saveData: false
-              })
-            });
-        """)
-        await context.add_init_script("""
-                    Object.defineProperty(navigator, 'platform', {
-                      get: () => 'Win32'
-                    });
-        """)
-        await context.add_init_script("""
-            Object.defineProperty(navigator, 'userAgentData', {{
-              get: () => ({{
-                brands: [{{ brand: "Chromium", version: "{major}" }}],
-                mobile: false,
-                platform: "Windows"
-              }})
-            }});
-        """.format(major=major))
-        await context.add_init_script("""
-            Object.defineProperty(navigator, 'plugins', {
-              get: () => [1, 2, 3, 4, 5]
-            });
-        """)
-
-        await context.add_cookies([
-            {
-                'name': 'CONSENT',
-                'value': 'YES+srp.gws-20260211-0-RC2.en+FX+111',
-                'domain': '.google.com',
-                'path': '/',
-                'secure': True,
-                'sameSite': 'Lax'
-            },
-            {
-                'name': 'SOCS',
-                'value': 'CAESEwgDEgk0ODE3Nzk3MjQaAmVuIAEaBgiA_LyaBg',
-                'domain': '.google.com',
-                'path': '/',
-                'secure': True,
-                'sameSite': 'Lax'
-            },
-            {
-                'name': 'NID',
-                'value': '511=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-                'domain': '.google.com',
-                'path': '/',
-                'secure': True,
-                'httpOnly': True,
-                'sameSite': 'None'
-            }
-        ])
-
-        self.context = context
-        self.page = None
-        self.guard_page = await self.context.new_page()
-        await self.guard_page.goto("about:blank")
-
-    async def create_context_with_proxy(self, proxy: dict):
-        """
-        创建一个独立 context，并绑定代理
-        """
-        time_zone = random.choice(Config.FINGERPRINT_REGIONS.get(self.language_code))
-        dpr_setting = random.choice(Config.DPR_SETTING)
-        ua = random.choice(Config.USER_AGENT)
-
-        context = await self.browser.new_context(
-            proxy=proxy,
-            locale=time_zone["locale"],
-            screen=dpr_setting["screen"],
-            viewport=None,  # ⭐ 不用 viewport
-            user_agent=ua,
-            device_scale_factor=dpr_setting["dpr"],
-            timezone_id=time_zone["timezone"],
-            extra_http_headers={
-                "Accept-Language": time_zone["accept_language"],
-            }
-        )
-
-        # 注入你现有的所有指纹脚本
-        await context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {
-              get: () => undefined
-            });
-        """)
-
-        return context
-
-
-    async def _inject_anti_detection_scripts(self, page):
-        """注入反检测脚本"""
-        await page.add_init_script("""
-            // chrome
-            window.chrome = {
-                runtime: {}
-            };
-            // permissions
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = (parameters) => (
-                parameters.name === 'notifications'
-                    ? Promise.resolve({ state: Notification.permission })
-                    : originalQuery(parameters)
-            );
-        """)
-
-    async def goto(self, url: str, wait_until: str = "domcontentloaded"):
-        """
-        导航到指定 URL
-
-        Args:
-            url: 目标 URL
-            wait_until: 等待状态（domcontentloaded, load, networkidle）
-        """
-        if not self.page:
-            raise RuntimeError("Page not created. Call new_page() first.")
-
-        await self.page.goto(url, wait_until=wait_until)
-
-    async def search_google_images(self, keyword: str):
-        """
-        在 Google 图片搜索关键词
-
-        Args:
-            keyword: 搜索关键词
-        """
-        if not self.page:
-            raise RuntimeError("Page not created. Call new_page() first.")
-
-        # 等待搜索框
-        await self.page.wait_for_selector("textarea.gLFyf", timeout=5000)
-        textarea = self.page.locator("textarea.gLFyf")
-
-        # 模拟真人输入
-        await textarea.click()
-        await textarea.fill("")
-        await textarea.type(keyword, delay=80)
-        await textarea.press("Enter")
-
-        await self.page.wait_for_load_state("domcontentloaded")
-
-    async def smooth_scroll(self, scroll_count: int = 5, distance: int = 400, delay: int = 800):
-        """
-        平滑滚动页面
-
-        Args:
-            scroll_count: 滚动次数
-            distance: 每次滚动的像素距离
-            delay: 每次滚动之间的延迟（毫秒）
-        """
-        if not self.page:
-            raise RuntimeError("Page not created. Call new_page() first.")
-
-        for _ in range(scroll_count):
-            await self.page.mouse.wheel(0, distance)
-            await self.page.wait_for_timeout(delay)
-
-    async def type_with_human_like_delay(self, selector: str, text: str, delay: int = 80, clear_first: bool = True):
-        """
-        在指定元素中模拟真人打字
-
-        Args:
-            selector: 元素选择器
-            text: 要输入的文本
-            delay: 每个字符之间的延迟（毫秒）
-            clear_first: 是否先清空输入框
-        """
-        if not self.page:
-            raise RuntimeError("Page not created. Call new_page() first.")
-
-        element = self.page.locator(selector)
-        await element.click()
-
-        if clear_first:
-            await element.fill("")
-
-        await element.type(text, delay=delay)
-
-    async def close(self):
-        """改进的关闭方法"""
-        errors = []
-
-        # 1. 先关闭所有页面
-        if self.context:
-            try:
-                pages = self.context.pages
-                for page in pages:
-                    try:
-                        await asyncio.wait_for(page.close(), timeout=5.0)
-                    except Exception as e:
-                        errors.append(f"关闭页面失败: {e}")
-            except Exception as e:
-                errors.append(f"获取页面列表失败: {e}")
-
-        # 2. 关闭上下文
-        if self.context:
-            try:
-                await asyncio.wait_for(self.context.close(), timeout=5.0)
-            except Exception as e:
-                errors.append(f"关闭上下文失败: {e}")
-
-        # 3. 关闭浏览器
-        if self.browser:
-            try:
-                await asyncio.wait_for(self.browser.close(), timeout=5.0)
-            except Exception as e:
-                errors.append(f"关闭浏览器失败: {e}")
-
-        # 4. 停止playwright
-        if self.playwright:
-            try:
-                await asyncio.wait_for(self.playwright.stop(), timeout=5.0)
-            except Exception as e:
-                errors.append(f"停止Playwright失败: {e}")
-
-        if errors:
-            logger.warning(f"关闭时遇到错误: {errors}")
-
-    async def create_new_page(self) -> Page:
-        """创建一个新的独立页面（不覆盖 self.page）"""
-        if not self.context:
-            raise RuntimeError("Browser context not initialized. Call initialize() first.")
-
-        page = await self.context.new_page()
-        await page.route("**/*", block_images)
-        # 注入反爬虫脚本
-        await self._inject_anti_detection_scripts(page)
-
-        return page
-
+# ===== Cookie / 导航工具 =====
 
 async def handle_cookie_consent(page, timeout=5000):
-    """
-    处理 Google Cookie 同意弹窗
-
-    Args:
-        page: Playwright 页面对象
-        timeout: 等待超时时间（毫秒）
-    """
-    try:
-        # 多个可能的选择器
-        selectors = [
-            'button#L2AGLb',  # Accept all
-            'button[aria-label*="Accept"]',
-            'button:has-text("Accept all")',
-            'button:has-text("I agree")',
-            'div[role="button"]:has-text("Accept")',
-        ]
-
-        for selector in selectors:
-            try:
-                button = page.locator(selector).first
-                if await button.is_visible(timeout=timeout):
-                    logger.info(f"检测到 Cookie 弹窗，准备点击: {selector}")
-                    await asyncio.sleep(random.uniform(0.5, 1.0))
-                    await button.click()
-                    logger.info("✅ 已点击 Cookie 同意按钮")
-                    await asyncio.sleep(random.uniform(0.3, 0.8))
-                    return True
-            except:
-                continue
-
-        logger.info("ℹ️  未检测到 Cookie 弹窗")
-        return False
-
-    except Exception as e:
-        logger.warning(f"处理 Cookie 弹窗异常: {e}")
-        return False
+    selectors = [
+        'button#L2AGLb',
+        'button[aria-label*="Accept"]',
+        'button:has-text("Accept all")',
+        'button:has-text("I agree")',
+        'div[role="button"]:has-text("Accept")',
+    ]
+    for selector in selectors:
+        try:
+            button = page.locator(selector).first
+            if await button.is_visible(timeout=timeout):
+                await asyncio.sleep(random.uniform(0.5, 1.0))
+                await button.click()
+                logger.info("✅ 已点击 Cookie 同意按钮")
+                await asyncio.sleep(random.uniform(0.3, 0.8))
+                return True
+        except Exception:
+            continue
+    return False
 
 
-async def safe_goto(page, url, wait_until="domcontentloaded", timeout=30000):
-    """
-    安全的页面导航，自动处理 Cookie 弹窗
+def is_sorry_url(url: str) -> bool:
+    return '/sorry/' in url or url.startswith('https://sorry.google.com')
 
-    Args:
-        page: Playwright 页面对象
-        url: 目标 URL
-        wait_until: 等待状态
-        timeout: 超时时间
-    """
-    await page.goto(url, wait_until=wait_until, timeout=timeout)
 
-    # 自动处理 Cookie 弹窗
-    await handle_cookie_consent(page)
-
-    return page
+# ===== 鼠标 / 滚动 =====
 
 async def human_mouse_move(page, start, end, steps=30):
     for i in range(steps):
@@ -701,82 +556,37 @@ async def human_mouse_move(page, start, end, steps=30):
 
 
 async def human_scroll(page, steps=6, wait_for_load=True):
-    """
-    滚动到页面底部触发懒加载
-
-    Args:
-        page: Playwright 页面对象
-        steps: 最大滚动次数
-        wait_for_load: 是否等待新内容加载
-    """
     for i in range(steps):
-        # 获取当前页面高度
         prev_height = await page.evaluate("() => document.body.scrollHeight")
-
-        # 滚动到底部
         await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-
-        # 等待一段时间，让新内容加载
         await asyncio.sleep(random.uniform(0.5, 1.0))
-
         if wait_for_load:
-            # 获取新的页面高度
             new_height = await page.evaluate("() => document.body.scrollHeight")
-
-            # 如果高度没有变化，说明没有更多内容了
             if new_height == prev_height:
-                logger.info(f"已到达页面底部，没有更多内容加载 (滚动 {i + 1} 次)")
+                logger.info(f"已到达页面底部 (滚动 {i + 1} 次)")
                 break
             else:
-                logger.info(f"检测到新内容加载，页面高度: {prev_height} -> {new_height}")
-
-        # 随机小幅回滚（模拟真人行为）
+                logger.info(f"页面高度: {prev_height} -> {new_height}")
         if random.random() < 0.3:
             back_distance = random.randint(100, 300)
             await page.evaluate(f"window.scrollBy(0, -{back_distance})")
             await asyncio.sleep(random.uniform(0.3, 0.6))
 
 
-async def human_scroll_old(page, steps=6):
-    height = await page.evaluate("() => document.body.scrollHeight")
-
-    pos = 0
-    for _ in range(steps):
-        delta = random.randint(300, 500)
-        pos = min(pos + delta, height)
-
-        await page.evaluate(f"window.scrollTo(0, {pos})")
-        await asyncio.sleep(random.uniform(0.6, 1.4))
-        if pos >= height: break
-
-    if random.random() < 0.25:
-        back = random.randint(80, 200)
-        pos = max(pos - back, 0)
-        await page.evaluate(f"window.scrollTo(0, {pos})")
-
+# ===== 响应消费者 =====
 
 async def response_consumer(queue, task_id, params, aggregated):
-    """
-    消费响应队列,避免阻塞事件循环
-    """
     while True:
         response = await queue.get()
-
-        # 停止信号
         if response is None:
             queue.task_done()
             break
-
         try:
-            # ⭐ 在这里做耗时操作
             body = await asyncio.wait_for(response.text(), timeout=15.0)
             result = await demo_with_real_data(body)
-
-            # 收集数据
             for item in result:
                 if item.get("site", ".jp").endswith('.jp'):
                     continue
-
                 new_data = {
                     "index": item.get("id"),
                     "word": item.get("title"),
@@ -797,78 +607,58 @@ async def response_consumer(queue, task_id, params, aggregated):
                 }
                 await aggregated.add_data(new_data)
                 await aggregated.add_domain(item.get("site"))
-
-            # 收集 related_search
             related_search = await get_related_search(body)
             await aggregated.add_related_search(related_search)
-
-            # 收集 related_items
             related_items = await get_related_items(body)
             await aggregated.add_related_items(related_items)
-
-            logger.info(f"[Work-{params.worker_id}] 处理完成,数据: {len(result)}")
-
+            logger.info(f"[Work-{params.worker_id}] 处理完成，数据: {len(result)}")
         except asyncio.TimeoutError:
-            logger.warning(f"[Work-{params.worker_id}] response.text() 超时，跳过此响应")
-
+            logger.warning(f"[Work-{params.worker_id}] response.text() 超时，跳过")
         except Exception as e:
             if "Target page, context or browser has been closed" in str(e):
                 logger.warning(f"[Work-{params.worker_id}] 页面已关闭")
             else:
                 logger.exception(f"[Work-{params.worker_id}] 消费异常: {e}")
         finally:
-            queue.task_done()  # ⭐ 标记任务完成
+            queue.task_done()
 
+
+async def wait_queue_safe(queue, consumer_task, params, timeout=120):
+    try:
+        await asyncio.wait_for(asyncio.shield(queue.join()), timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.warning(f"[Work-{params.worker_id}] queue.join 超时，强制跳出")
+    if consumer_task.done():
+        exc = consumer_task.exception()
+        if exc:
+            logger.error(f"[Work-{params.worker_id}] consumer_task 异常退出: {exc}")
+
+
+# ===== 输入 =====
 
 async def human_type_and_submit(page, keyword_item, timeout=10000):
-    """
-    模拟人类输入并提交搜索（使用剪贴板粘贴）
-
-    Args:
-        page: Playwright 页面对象
-        keyword_item: 关键词字典
-        timeout: 超时时间（毫秒）
-    """
     keyword = keyword_item["name"]
     try:
-        # 等搜索框
         await page.wait_for_selector("textarea.gLFyf", timeout=timeout)
         textarea = page.locator("textarea.gLFyf")
-
-        # 获取元素位置
         box = await textarea.bounding_box()
         if not box:
             raise RuntimeError("Cannot get textarea bounding box")
-
-        # 模拟鼠标移动到输入框中心
         start = (random.randint(0, 200), random.randint(0, 200))
-        end = (
-            box["x"] + box["width"] / 2,
-            box["y"] + box["height"] / 2,
-        )
+        end = (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
         await human_mouse_move(page, start, end, steps=random.randint(25, 40))
-
-        # 点击聚焦
         await textarea.click(delay=random.randint(50, 120))
-
-        # 停顿一下（人会想一想）
         await page.wait_for_timeout(random.randint(200, 500))
-
-        # 清空（Ctrl+A + Backspace，比 fill 更像人）
         await page.keyboard.down("Control")
         await page.keyboard.press("KeyA")
         await page.keyboard.up("Control")
         await page.keyboard.press("Backspace")
-
         await page.wait_for_timeout(random.randint(100, 300))
-
         await page.evaluate(f"""
             document.querySelector('textarea.gLFyf').value = {json.dumps(keyword)};
         """)
-
         await page.keyboard.press("Enter")
         await page.wait_for_timeout(random.randint(200, 300))
-
     except PlaywrightTimeout as e:
         logger.error(f"人类输入超时: {e}")
         raise
@@ -877,83 +667,45 @@ async def human_type_and_submit(page, keyword_item, timeout=10000):
         raise
 
 
-async def human_type_with_suggestion(page, keyword):
-    """模拟使用Google搜索建议"""
-    input_box = page.locator("textarea.gLFyf")
-    await input_box.click()
-
-    typed = ""
-    target = keyword.lower()
-
-    for ch in keyword:
-        typed += ch
-        await input_box.type(ch, delay=random.randint(80, 150))
-
-        # 给 Google 一点反应时间
-        await page.wait_for_timeout(random.randint(120, 220))
-
-        suggestions = page.locator("li.sbct span")
-        count = await suggestions.count()
-
-        for i in range(count):
-            text = (await suggestions.nth(i).inner_text()).lower()
-
-            # ⭐ 完整命中
-            if text == target:
-                # 用键盘而不是 click（更像人）
-                for _ in range(i):
-                    await page.keyboard.press("ArrowDown")
-                    await page.wait_for_timeout(random.randint(50, 90))
-
-                await page.keyboard.press("Enter")
-                return
-
-    # 如果一直没命中,正常 Enter
-    await page.keyboard.press("Enter")
-
-# 等待队列清空，同时监控 consumer_task 是否还活着
-async def wait_queue_safe(queue, consumer_task, params, timeout=120):
-    try:
-        # 用 wait_for 给 join 加超时
-        await asyncio.wait_for(
-            asyncio.shield(queue.join()),
-            timeout=timeout
-        )
-    except asyncio.TimeoutError:
-        logger.warning(f"[Work-{params.worker_id}] queue.join 等待超时，强制跳出")
-
-    # 检查 consumer 是否意外退出
-    if consumer_task.done():
-        exc = consumer_task.exception()
-        if exc:
-            logger.error(f"[Work-{params.worker_id}] consumer_task 异常退出: {exc}")
+# ===== 单关键词搜索 =====
 
 async def search_single_keyword_with_page(page, keyword_item, params, max_retries=2):
     """
-    搜索单个关键词
+    搜索单个关键词。
+
+    返回值：
+      True   → 成功
+      False  → 普通失败（可重试）
+      None   → 代理失败（需要换代理 / 退休 context）
+      "sorry"→ 触发了 sorry 页面
     """
     keyword = keyword_item["name"]
     keyid = keyword_item["id"]
 
-    # 创建共享的数据收集器
     response_queue = asyncio.Queue()
     aggregated = ThreadSafeAggregator()
+
     for attempt in range(max_retries):
         try:
             async def handle_response(response):
                 url = response.url
-                if "google.com/search" not in url: return
-                if "tbm=isch" not in url and "q=" not in url: return
-                if response.status in [301, 302]: return
-
+                if "google.com/search" not in url:
+                    return
+                if "tbm=isch" not in url and "q=" not in url:
+                    return
+                if response.status in [301, 302]:
+                    return
                 logger.info(f"[Work-{params.worker_id}] 捕获响应: {url}")
-                await response_queue.put(response)  # 只放入队列,不阻塞
+                await response_queue.put(response)
 
             page.on('response', handle_response)
-            consumer_task = create_child_task(response_consumer(response_queue, keyid, params, aggregated), name=f"Work-{params.worker_id}")
+            consumer_task = create_child_task(
+                response_consumer(response_queue, keyid, params, aggregated),
+                name=f"Work-{params.worker_id}"
+            )
 
-            # 打开 Google 图片搜索
-            logger.info(f"[{keyword}] 正在打开 Google 图片搜索页面 (尝试 {attempt + 1}/{max_retries})")
+            # --- goto ---
+            logger.info(f"[{keyword}] 打开 Google 图片搜索 (尝试 {attempt + 1}/{max_retries})")
             task = None
             try:
                 task = create_child_task(
@@ -965,31 +717,27 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
                 )
                 await asyncio.wait_for(task, timeout=40.0)
 
-                # ⭐ 添加：自动处理 Cookie 弹窗
-                await asyncio.sleep(0.5)  # 等待页面稳定
+                # 前置检查：刚打开就 sorry，直接返回
+                if is_sorry_url(page.url):
+                    logger.warning(f"[{keyword}] goto 后立即触发 sorry: {page.url}")
+                    return "sorry"
+
+                await asyncio.sleep(0.5)
                 await handle_cookie_consent(page, timeout=3000)
+
             except (PlaywrightError, asyncio.TimeoutError) as e:
                 error_msg = str(e)
-
-                # ✅ 代理连接失败
-                if "ERR_PROXY_CONNECTION_FAILED" in error_msg:
-                    logger.error(f"[{keyword}] 代理连接失败: {params.proxies.get('server')}")
-                    await params.app.set_fail(params.atm, params.proxies)
-                    return None  # 标记为代理失败，需要换代理
-
-                # ✅ 其他网络错误
-                elif any(err in error_msg for err in [
+                proxy_errors = [
+                    "ERR_PROXY_CONNECTION_FAILED",
                     "ERR_TUNNEL_CONNECTION_FAILED",
                     "ERR_SOCKS_CONNECTION_FAILED",
                     "ERR_CONNECTION_REFUSED",
                     "ERR_CONNECTION_TIMED_OUT",
-                    "net::ERR_"
-                ]):
-                    logger.error(f"[{keyword}] 网络连接失败: {error_msg}")
-                    await params.app.set_fail(params.atm, params.proxies)
-                    return None
-
-                # ✅ 超时错误
+                    "net::ERR_",
+                ]
+                if any(err in error_msg for err in proxy_errors):
+                    logger.error(f"[{keyword}] 代理/网络错误: {error_msg}")
+                    return None  # 代理失败
                 elif isinstance(e, asyncio.TimeoutError):
                     if task:
                         task.cancel()
@@ -997,35 +745,33 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
                     if attempt < max_retries - 1:
                         await asyncio.sleep(3)
                         continue
-                    else:
-                        return False
-
-                # ✅ 其他 Playwright 错误
+                    return False
                 else:
-                    logger.exception(f"[{keyword}] 页面导航失败: {e}")
+                    logger.exception(f"[{keyword}] 导航失败: {e}")
                     raise
-            # 搜索关键词
+
+            # --- 输入关键词 ---
             logger.info(f"[{keyword}] 开始输入关键词")
             task = create_child_task(human_type_and_submit(page, keyword_item))
             await asyncio.wait_for(task, timeout=20.0)
 
             await asyncio.sleep(1)
-            current_url = page.url
-            if '/sorry/' in current_url or 'sorry' in current_url:
-                logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
-                await params.app.set_fail(params.atm, params.proxies)
-                return None
 
-            # 平滑滚动
-            logger.info(f"[{keyword}] 开始滚动页面")
+            # 输入后检查 sorry
+            if is_sorry_url(page.url):
+                logger.warning(f"[{keyword}] 输入后触发 sorry: {page.url}")
+                return "sorry"
+
+            # --- 滚动 ---
+            logger.info(f"[{keyword}] 开始滚动")
             task = create_child_task(human_scroll(page, 3))
             await asyncio.wait_for(task, timeout=60.0)
 
-            # ⭐ 等待队列清空
-            logger.info(f"[{keyword}] 等待响应队列处理完成...")
+            # --- 等待响应队列 ---
+            logger.info(f"[{keyword}] 等待响应队列处理...")
             await wait_queue_safe(response_queue, consumer_task, params, timeout=120)
 
-            # 发停止信号，等 consumer 干净退出
+            # 停止 consumer
             if not consumer_task.done():
                 await response_queue.put(None)
                 try:
@@ -1038,26 +784,19 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
                     except asyncio.CancelledError:
                         pass
             else:
-                # consumer 已经退出了，看看有没有异常
                 exc = consumer_task.exception()
                 if exc:
                     logger.error(f"[Work-{params.worker_id}] consumer_task 异常退出: {exc}")
 
-            logger.info(f"[Success] 完成关键词: {keyword}")
+            # --- 数据处理 ---
             aggregated_data = await aggregated.get_all()
-            logger.info(f"[{keyword}] 获取聚合数据: {len(aggregated_data['new_datas'])} 条")
-            # 在循环结束后统一处理所有收集到的数据
+            logger.info(f"[{keyword}] 聚合数据: {len(aggregated_data['new_datas'])} 条")
+
             if aggregated_data['new_datas']:
-                logger.info(f"[{keyword}] 开始处理聚合数据，共 {len(aggregated_data['new_datas'])} 条")
-
-                # 去重处理（如果需要）
                 unique_domains = list(set(aggregated_data['domains']))
-                unique_related_search = list(set(aggregated_data['related_search'])) if aggregated_data[
-                    'related_search'] else []
-                unique_related_items = list(set(aggregated_data['related_items'])) if aggregated_data[
-                    'related_items'] else []
+                unique_related_search = list(set(aggregated_data['related_search'])) if aggregated_data['related_search'] else []
+                unique_related_items = list(set(aggregated_data['related_items'])) if aggregated_data['related_items'] else []
 
-                # 统一处理所有数据
                 products = await deal_info_by_async(aggregated_data['new_datas'], params)
                 shopify_products = await deal_shopify_product_info_async(params, products)
 
@@ -1082,15 +821,14 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
 
                 logger.info(f"[{keyword}] 数据处理完成")
             else:
-                logger.warning(f"[{keyword}] 没有收集到任何数据")
+                logger.warning(f"[{keyword}] 没有收集到数据")
 
-            # **检测点1: 检查页面加载后的URL**
-            current_url = page.url
-            if '/sorry/' in current_url or 'sorry' in current_url:
-                logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
-                await params.app.set_fail(params.atm, params.proxies)
-                return None
-            await params.app.set_success(params.atm, params.proxies)
+            # 最终 sorry 检查
+            if is_sorry_url(page.url):
+                logger.warning(f"[{keyword}] 最终检查触发 sorry: {page.url}")
+                return "sorry"
+
+            logger.info(f"[Success] 完成关键词: {keyword}")
             return True
 
         except Exception as e:
@@ -1104,99 +842,87 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
     return False
 
 
-async def search_keyword_batch(params, pool: BrowserPool, language_code: str):
+# ===== 批量搜索（核心改动） =====
 
+async def search_keyword_batch(params, pool: BrowserPool, language_code: str):
+    """
+    核心改动：一个 context 连续处理多个关键词，不再每词新建/销毁。
+
+    流程：
+      1. acquire 一个 context（可能已有历史 cookie）
+      2. 循环处理关键词，每词之间 human_like_sleep
+      3. context 达到寿命 / 连续 sorry ≥ 2 → release(success=False) 触发退休
+      4. 普通成功 → release(success=True) 放回队列
+    """
     success_count = 0
     fail_count = 0
     tasks = params.tasks.copy()
-    err_task = []
+    err_tasks = []
 
     while tasks:
-
-        keyword_item_str = tasks.pop(0)
-        keyword_item = json.loads(keyword_item_str)
-
+        # 每次 acquire 一个 context，连续处理若干关键词
         proxy = await params.app.get_random_proxy()
         params.proxies = proxy
 
-        ctx_wrapper = await pool.acquire(proxy, language_code)
-
         try:
-            page = await ctx_wrapper.new_page()
+            ctx = await pool.acquire(timeout=60.0)
+        except TimeoutError as e:
+            logger.error(f"[Work-{params.worker_id}] acquire 超时: {e}")
+            await asyncio.sleep(5)
+            continue
 
-            success = await search_single_keyword_with_page(
-                page,
-                keyword_item,
-                params
-            )
+        page = await ctx.ensure_page()
+        ctx_success = True  # 这个 context 整体是否正常
 
-            if success is None:
-                await params.app.set_fail(params.atm, proxy)
-                await pool.release(ctx_wrapper, success=False)
-                err_task.append(keyword_item_str)
-                continue
+        # 在这个 context 的剩余寿命内循环处理关键词
+        while tasks and not ctx.should_retire:
+            keyword_item_str = tasks.pop(0)
+            keyword_item = json.loads(keyword_item_str)
 
-            if success:
-                await params.app.set_success(params.atm, proxy)
+            result = await search_single_keyword_with_page(page, keyword_item, params)
+            ctx.keyword_count += 1
+
+            if result is True:
+                ctx.consecutive_sorry = 0   # 重置连续 sorry
                 success_count += 1
-                await pool.release(ctx_wrapper, success=True)
-            else:
+                await params.app.set_success(params.atm, proxy)
+
+            elif result == "sorry":
+                ctx.consecutive_sorry += 1
+                err_tasks.append(keyword_item_str)
                 fail_count += 1
-                err_task.append(keyword_item_str)
-                await pool.release(ctx_wrapper, success=False)
+                await params.app.set_fail(params.atm, proxy)
+                logger.warning(f"[Work-{params.worker_id}] 连续 sorry = {ctx.consecutive_sorry}")
+                if ctx.consecutive_sorry >= 2:
+                    # 代理被封，强制退休这个 context
+                    ctx_success = False
+                    break
 
-        except Exception:
-            fail_count += 1
-            err_task.append(keyword_item_str)
-            await pool.release(ctx_wrapper, success=False)
+                # 单次 sorry 先等一会再试（可能是临时的）
+                await asyncio.sleep(random.uniform(30, 60))
 
-    if err_task:
-        await send_err_task(params, err_task)
+            elif result is None:
+                # 代理连接失败
+                ctx_success = False
+                err_tasks.append(keyword_item_str)
+                fail_count += 1
+                await params.app.set_fail(params.atm, proxy)
+                break
 
-    logger.info(f"批次完成 - 成功: {success_count}, 失败: {fail_count}")
+            else:
+                # result is False：普通失败
+                err_tasks.append(keyword_item_str)
+                fail_count += 1
+                ctx.fail_count += 1
 
+            # 关键词间隔（长尾分布）
+            if tasks and not ctx.should_retire:
+                await human_like_sleep()
 
-# 使用示例
-async def test():
-    from dataclasses import dataclass
-    from platform_api import AsyncTokenManager, AsyncProxyPool
-    from pw.page_pool import create_pool
+        # 归还 context
+        await pool.release(ctx, proxy=proxy, language_code=language_code, success=ctx_success)
 
-    app1 = AsyncProxyPool()
-    await app1.refresh_pool()
+    if err_tasks:
+        await send_err_task(params, err_tasks)
 
-    atm1 = AsyncTokenManager()
-    await atm1.refresh_token()
-
-    @dataclass
-    class SearchTaskParams:
-        """搜索任务参数类"""
-        worker_id = 1
-        task_id = 83
-        tasks = []
-        dbname = "t0083-c99-en-usgoimg"
-        binddomain = "image9wcs.xyz"
-        language_code = "en-US"
-        usenum = 20
-        desimagenum = 12
-        languageid = 99
-        jxycategory_id = 1
-        proxies = {"server": "socks5://170.199.224.169:1080"}
-        collect_platform_type = None
-        app = app1
-        atm = atm1
-
-    proxies = await app1.get_random_proxies(Config.TASK_NUM)
-
-    params = SearchTaskParams()
-    # async with create_pool(
-    #     initial_proxies=proxies,
-    #     max_size=Config.TASK_NUM,
-    #     browser_type="chromium",
-    #     launch_options={}
-    # ) as pool:
-    #     await pool_search(pool, params)
-
-
-if __name__ == "__main__":
-    asyncio.run(test())
+    logger.info(f"[Work-{params.worker_id}] 批次完成 - 成功: {success_count}, 失败: {fail_count}")
