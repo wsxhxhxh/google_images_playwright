@@ -1,8 +1,11 @@
 # config.py
 import os
 import asyncio
+from dotenv import load_dotenv
 import logging
 from logging.handlers import TimedRotatingFileHandler
+
+load_dotenv()
 
 class TaskNameFilter(logging.Filter):
     def filter(self, record):
@@ -184,10 +187,11 @@ class Config:
     COOLDOWN_MAX = 600  # 10 分钟
 
 
-    PROXY_URL = 'https://seosystem.top/prod/api/v1/proxy-group/4/ips'
+    PROXY_URL: str = os.getenv("PROXY_URL", "")
     PROXY_STATUS = 'https://seosystem.top/prod/api/v1/proxy-group-ips/{id}/status'
     TASK_NUM = 20
-    MAX_BROWSER = 6
-    MAX_CTX_PER_BROWSER = 3
+    MAX_BROWSER: int = int(os.getenv("MAX_BROWSER", "6"))
+    MAX_CTX_PER_BROWSER: int = int(os.getenv("MAX_CTX_PER_BROWSER", "3"))
     TOTAL_SLOTS = MAX_BROWSER * MAX_CTX_PER_BROWSER
+    HEADLESS: bool = os.getenv("HEADLESS", "false").lower() == "true"
 

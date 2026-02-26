@@ -266,7 +266,7 @@ class BrowserWrapper:
     async def start(self):
         self.browser = await self.playwright.chromium.launch(
             executable_path=self.chrome_path,
-            headless=False,
+            headless=Config.HEADLESS,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
