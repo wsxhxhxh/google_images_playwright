@@ -148,7 +148,7 @@ async def main():
         await pool.start(initial_proxies=initial_proxies, language_code=default_language)
 
         worker_tasks = []
-        for worker_id in range(Config.TASK_NUM):
+        for worker_id in range(Config.TOTAL_SLOTS):
             t = asyncio.create_task(worker(worker_id + 1, pool), name=f"Work-{worker_id}")
             worker_tasks.append(t)
 
