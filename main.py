@@ -90,6 +90,37 @@ async def worker(worker_id: int, pool: BrowserPool):
                 except Exception as e:
                     logger.warning(f"关闭 session 失败: {e}")
 
+async def monitor_pool(pool: BrowserPool, interval: int = 30):
+    """
+    每隔 interval 秒打印一次池子状态和速度统计
+    """
+    last_success = 0
+    last_time = asyncio.get_event_loop().time()
+
+    while True:
+        await asyncio.sleep(interval)
+
+        now = asyncio.get_event_loop().time()
+        elapsed = now - last_time
+
+        current_success = pool.total_success  # 需要在pool里加这个计数器
+        delta = current_success - last_success
+        speed = delta / elapsed * 60  # 词/分钟
+
+        idle = pool._idle_queue.qsize()
+        total = pool.total_slots
+
+        logger.info(
+            f"[Monitor] "
+            f"速度={speed:.1f}词/min | "
+            f"idle={idle}/{total} | "
+            f"成功={current_success} | "
+            f"sorry累计={pool.total_sorry}"
+        )
+
+        last_success = current_success
+        last_time = now
+
 
 async def main():
     try:
@@ -122,12 +153,15 @@ async def main():
             worker_tasks.append(t)
 
         logger.info(f"创建了 {len(worker_tasks)} 个 Worker")
+
+        asyncio.create_task(monitor_pool(pool, interval=30), name="monitor")
         await asyncio.gather(*worker_tasks)
 
     except asyncio.TimeoutError:
         logger.error("初始化超时")
     except Exception as e:
         logger.exception(f"主函数异常: {e}")
+
 
 
 if __name__ == '__main__':

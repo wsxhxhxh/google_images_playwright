@@ -885,10 +885,12 @@ async def search_keyword_batch(params, pool: BrowserPool, language_code: str):
             if result is True:
                 ctx.consecutive_sorry = 0   # 重置连续 sorry
                 success_count += 1
+                pool.total_success += 1
                 await params.app.set_success(params.atm, proxy)
 
             elif result == "sorry":
                 ctx.consecutive_sorry += 1
+                pool.total_sorry += 1
                 err_tasks.append(keyword_item_str)
                 fail_count += 1
                 await params.app.set_fail(params.atm, proxy)

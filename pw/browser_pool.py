@@ -90,6 +90,10 @@ class BrowserPool:
         self.browsers = []
         self.semaphore = asyncio.Semaphore(max_browser * max_context_per_browser)
 
+        self.total_success = 0  # 累计成功关键词数
+        self.total_sorry = 0  # 累计 sorry 次数
+        self.total_retired = 0  # 累计退休 context 数
+
     async def start(self):
         self.playwright = await async_playwright().start()
 
