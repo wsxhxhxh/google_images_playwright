@@ -384,6 +384,10 @@ class BrowserPool:
         # 补充锁：防止并发触发多次补充
         self._replenish_lock = asyncio.Lock()
 
+        self.total_success = 0  # 累计成功关键词数
+        self.total_sorry = 0  # 累计 sorry 次数
+        self.total_retired = 0  # 累计退休 context 数
+
     async def start(self, initial_proxies: list[dict], language_code: str):
         """
         启动浏览器，预热所有 context。
