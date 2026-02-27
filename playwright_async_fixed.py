@@ -187,11 +187,11 @@ async def human_like_sleep():
     """
     r = random.random()
     if r < 0.75:
-        t = random.uniform(8, 25)
+        t = random.uniform(4, 8)
     elif r < 0.92:
-        t = random.uniform(30, 60)
+        t = random.uniform(10, 20)
     else:
-        t = random.uniform(60, 120)
+        t = random.uniform(22, 30)
     logger.info(f"关键词间隔 {t:.1f}s")
     await asyncio.sleep(t)
 
