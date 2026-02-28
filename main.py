@@ -18,6 +18,7 @@ class SearchTaskParams:
     tasks: List
     proxies: Dict
     app: AsyncProxyPool
+    atm: AsyncTokenManager
 
 
 async def worker(worker_id: int, pool: BrowserPool):
@@ -36,6 +37,7 @@ async def worker(worker_id: int, pool: BrowserPool):
                 tasks=tasks,
                 proxies=None,
                 app=app,
+                atm=atm,
             )
 
             await search_keyword_batch(params, pool)
