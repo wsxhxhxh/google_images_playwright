@@ -18,7 +18,7 @@ from typing import Optional
 
 from config import Config, logger
 from dataclasses import dataclass
-
+from urllib.parse import urlparse
 
 async def send_links_to_mysql(body):
     url = "http://63.141.239.146:10087/api/links"
@@ -51,8 +51,9 @@ async def get_links_by_jsname(page: Page):
     ress = []
 
     for href in hrefs:
-        if "FCKeditor" in href:
+        if ("FCKeditor" in href) and ("ckeditor.com" not in href):
             ii = {
+                "domain": urlparse(href).netloc.replace("www.", ""),
                 "source_link": href,
                 "target_link": href.split("FCKeditor")[0] + "FCKeditor/editor/filemanager/browser/default/browser.html"
             }
