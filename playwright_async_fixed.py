@@ -24,7 +24,7 @@ async def send_links_to_mysql(body):
     url = "https://63.141.239.146:10087/api/links"
 
     async with aiohttp.ClientSession() as session:
-        async with session.post(url, json=body) as resp:
+        async with session.post(url, json=body, ssl=False) as resp:
             text = await resp.text()
             logger.info(text)
 
@@ -58,8 +58,6 @@ async def get_links_by_jsname(page: Page):
             }
             ress.append(ii)
     return ress
-
-
 
 
 async def paginate_by_td_class(page: Page):
