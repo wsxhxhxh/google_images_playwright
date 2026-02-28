@@ -6,7 +6,9 @@ import asyncio
 import traceback
 from typing import Optional, Dict
 import aiohttp
-
+import aiofiles
+from pathlib import Path
+import redis.asyncio as aioredis
 
 from config import logger, Config
 
@@ -156,23 +158,21 @@ async def get_task_info(atm, session):
 
     raise Exception("获取任务信息失败，已重试10次")
 
-async def fetch_tasks_from_api(session, dbname, datanum, binddomain):
-    """从 API 获取关键词列表"""
+
+async def fetch_tasks_from_api():
+    """异步逐行读取文件的生成器"""
+    redis = await aioredis.from_url(
+        "redis://107.150.40.2:6379",
+        decode_responses=True,
+        password="pFKfclD2rU$3lib@6",
+
+    )
+
     try:
-        api_url = f"https://{binddomain}/page_data_api.php?datatype=getwordsV1&d={dbname}&datanum={datanum}"
-
-        logger.info(f"获取关键词: {api_url}")
-
-        async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=10), ssl=False) as resp:
-            if resp.status == 200:
-                task_data = json.loads(await resp.text())
-                tasks = task_data.get('data', [])
-                logger.info(f"获取到 {len(tasks)} 个关键词")
-                return tasks
-    except Exception as e:
-        logger.error(f"获取关键词失败: {e}")
-
-    return []
+        line = await redis.lpop("keyword")
+        return [line]
+    finally:
+        await redis.aclose()
 
 async def send_shopify_product_to_api(session, params, item):
     """异步发送Shopify产品数据到API"""

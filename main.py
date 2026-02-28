@@ -15,19 +15,9 @@ from platform_api import (AsyncTokenManager, AsyncProxyPool, get_task_info,
 @dataclass
 class SearchTaskParams:
     worker_id: int
-    task_id: int
     tasks: List
-    dbname: str
-    binddomain: str
-    language_code: str
-    usenum: int
-    desimagenum: int
-    languageid: int
-    jxycategory_id: str
     proxies: Dict
-    collect_platform_type: List[str]
     app: AsyncProxyPool
-    atm: AsyncTokenManager
 
 
 async def worker(worker_id: int, pool: BrowserPool):
@@ -36,45 +26,19 @@ async def worker(worker_id: int, pool: BrowserPool):
         no_keyword_num = 0
         try:
             session = aiohttp.ClientSession()
-            work_info = await get_task_info(atm, session)
-            dbname = work_info.get("product_db_name")
-            datanum = work_info.get("keyword_count")
-            binddomain = work_info.get("server_main_domain")
-            usenum = work_info.get("product_count")
-            jxycategory_id = work_info.get("category_id")
-            desimagenum = work_info.get("image_count")
-            task_name = work_info.get("task_name")
-            task_id = work_info.get("id")
-            collect_platform_type = work_info.get("collect_platform_type")
-            language_id = work_info.get("language_id")
-            language_code = Config.LANGUAGE_CODE_MAP.get(work_info.get("language_code"), "en-US")
-            logger.info(f"get work info: {task_name}")
 
-            tasks = await fetch_tasks_from_api(session, dbname, datanum, binddomain)
-            if not tasks:
-                no_keyword_num += 1
-            if no_keyword_num >= 20:
-                await update_task_status(atm, session, task_id)
+            tasks = await fetch_tasks_from_api()
+
             logger.info(f"fetch task num: {len(tasks)} {tasks[:3]}...")
 
             params = SearchTaskParams(
                 worker_id=worker_id,
                 tasks=tasks,
-                dbname=dbname,
-                binddomain=binddomain,
-                language_code=language_code,
-                usenum=usenum,
-                desimagenum=desimagenum,
-                languageid=language_id,
-                jxycategory_id=jxycategory_id,
-                task_id=task_id,
                 proxies=None,
-                collect_platform_type=collect_platform_type,
                 app=app,
-                atm=atm,
             )
 
-            await search_keyword_batch(params, pool, language_code)
+            await search_keyword_batch(params, pool)
 
         except IndexError:
             logger.info("no task, sleep 60s")

@@ -1,9 +1,15 @@
 import json
-import os
 import random
-import datetime
 import asyncio
 import aiofiles
+
+import json
+import random
+import time
+import asyncio
+import traceback
+from typing import Optional, Dict
+import aiohttp
 
 import aiohttp
 from playwright.async_api import async_playwright, BrowserContext, Page, TimeoutError as PlaywrightTimeout
@@ -11,14 +17,128 @@ from playwright._impl._errors import Error as PlaywrightError
 from typing import Optional
 
 from config import Config, logger
-from deal_product_func_async import deal_info_by_async, deal_shopify_product_info_async
-from parsel_json_str import demo_with_real_data, get_related_search, get_related_items
-from platform_api import send_items_to_api, send_shopify_product_to_api, send_err_task
-from managed import ManagedPage, ResponseTracker, ThreadSafeAggregator
+from dataclasses import dataclass
+
+
+async def send_links_to_mysql(body):
+    url = "https://63.141.239.146:10087/api/links"
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=body) as resp:
+            text = await resp.text()
+            logger.info(text)
+
+
+async def get_links_by_jsname(page: Page):
+    """
+    获取指定 jsname 的所有 a 标签 href
+
+    :return: href 列表
+    """
+    selector = f'a[jsname="UWckNb"]'
+    locator = page.locator(selector)
+
+    await locator.first.wait_for()
+
+    hrefs = await locator.evaluate_all(
+        """els =>
+            els
+                .map(el => el.href)
+                .filter(href => href && !href.startsWith('javascript'))
+        """
+    )
+
+    ress = []
+
+    for href in hrefs:
+        if "FCKeditor" in href:
+            ii = {
+                "source_link": href,
+                "target_link": href.split("FCKeditor")[0] + "FCKeditor/editor/filemanager/browser/default/browser.html"
+            }
+            ress.append(ii)
+    return ress
+
+
+
+
+async def paginate_by_td_class(page: Page):
+    """
+    点击 td.NKTSme 下的 a 标签进行翻页
+    最多翻 max_pages 页，不足则全部翻完
+    """
+
+    current_page = 1
+
+    while current_page < 6:
+        try:
+            # 每次都重新定位（避免 DOM 变化导致句柄失效）
+            locator = page.locator('td.NKTSme a')
+
+            count = await locator.count()
+            if count == 0:
+                print("没有找到翻页按钮，结束")
+                break
+
+            # 通常最后一个是“下一页”
+            next_btn = locator.last
+
+            # 判断是否可见
+            if not await next_btn.is_visible():
+                print("翻页按钮不可见，结束")
+                break
+
+            print(f"正在翻到第 {current_page + 1} 页")
+
+            # 点击并等待页面加载完成
+            await next_btn.click()
+            await page.wait_for_load_state("domcontentloaded")
+
+            current_page += 1
+
+
+
+        except PlaywrightTimeout:
+            print("翻页超时，结束")
+            break
+
+        except Exception as e:
+            print("发生异常:", e)
+            break
+
+    print("翻页结束")
+
+async def next_page(page: Page):
+
+    try:
+        locator = page.locator('a#pnnext')
+
+        count = await locator.count()
+        if count == 0:
+            print("没有找到翻页按钮，结束")
+            return
+
+        # 通常最后一个是“下一页”
+        next_btn = locator.last
+
+        # 判断是否可见
+        if not await next_btn.is_visible():
+            print("翻页按钮不可见，结束")
+
+        # 点击并等待页面加载完成
+        await next_btn.click()
+        await page.wait_for_load_state("domcontentloaded")
+
+        return True
+
+    except PlaywrightTimeout:
+        print("翻页超时，结束")
+
+    except Exception as e:
+        print("发生异常:", e)
 
 
 # ===== 指纹注入 =====
-
 async def inject_fingerprint(context: BrowserContext, ua: str):
     """
     统一的指纹注入入口，修复了：
@@ -177,7 +297,6 @@ async def inject_fingerprint(context: BrowserContext, ua: str):
 
 
 # ===== 间隔函数 =====
-
 async def human_like_sleep():
     """
     长尾分布的关键词间隔，模拟真实用户看结果的时间：
@@ -197,7 +316,6 @@ async def human_like_sleep():
 
 
 # ===== ContextWrapper =====
-
 class ContextWrapper:
     """
     封装一个 BrowserContext + Page，支持多关键词复用。
@@ -253,7 +371,6 @@ class ContextWrapper:
 
 
 # ===== BrowserWrapper =====
-
 class BrowserWrapper:
     def __init__(self, playwright, chrome_path: str):
         self.playwright = playwright
@@ -266,7 +383,7 @@ class BrowserWrapper:
     async def start(self):
         self.browser = await self.playwright.chromium.launch(
             executable_path=self.chrome_path,
-            headless=Config.HEADLESS,
+            headless=False,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
@@ -346,7 +463,6 @@ class BrowserWrapper:
 
 
 # ===== BrowserPool =====
-
 class BrowserPool:
     """
     Context 复用池。
@@ -493,7 +609,6 @@ class BrowserPool:
 
 
 # ===== 工具函数 =====
-
 async def block_images(route):
     url = route.request.url.lower()
     rtype = route.request.resource_type
@@ -521,7 +636,6 @@ async def save_text(path: str, content: str, mode: str = "w"):
 
 
 # ===== Cookie / 导航工具 =====
-
 async def handle_cookie_consent(page, timeout=5000):
     selectors = [
         'button#L2AGLb',
@@ -549,7 +663,6 @@ def is_sorry_url(url: str) -> bool:
 
 
 # ===== 鼠标 / 滚动 =====
-
 async def human_mouse_move(page, start, end, steps=30):
     for i in range(steps):
         t = i / steps
@@ -577,56 +690,6 @@ async def human_scroll(page, steps=6, wait_for_load=True):
             await asyncio.sleep(random.uniform(0.3, 0.6))
 
 
-# ===== 响应消费者 =====
-
-async def response_consumer(queue, task_id, params, aggregated):
-    while True:
-        response = await queue.get()
-        if response is None:
-            queue.task_done()
-            break
-        try:
-            body = await asyncio.wait_for(response.text(), timeout=15.0)
-            result = await demo_with_real_data(body)
-            for item in result:
-                if item.get("site", ".jp").endswith('.jp'):
-                    continue
-                new_data = {
-                    "index": item.get("id"),
-                    "word": item.get("title"),
-                    "domain": item.get("site"),
-                    "link": item.get("url"),
-                    "image": item.get("image"),
-                    "info": {
-                        "desc": item.get("desc"),
-                        "brand": item.get("brand"),
-                        "price": item.get("price"),
-                        "currency": item.get("currency"),
-                        "score": item.get("score"),
-                        "review": item.get("review"),
-                    },
-                    "parent": task_id,
-                    "stat": -1,
-                    "createdAt": str(datetime.datetime.now(datetime.timezone.utc))
-                }
-                await aggregated.add_data(new_data)
-                await aggregated.add_domain(item.get("site"))
-            related_search = await get_related_search(body)
-            await aggregated.add_related_search(related_search)
-            related_items = await get_related_items(body)
-            await aggregated.add_related_items(related_items)
-            logger.info(f"[Work-{params.worker_id}] 处理完成，数据: {len(result)}")
-        except asyncio.TimeoutError:
-            logger.warning(f"[Work-{params.worker_id}] response.text() 超时，跳过")
-        except Exception as e:
-            if "Target page, context or browser has been closed" in str(e):
-                logger.warning(f"[Work-{params.worker_id}] 页面已关闭")
-            else:
-                logger.exception(f"[Work-{params.worker_id}] 消费异常: {e}")
-        finally:
-            queue.task_done()
-
-
 async def wait_queue_safe(queue, consumer_task, params, timeout=120):
     try:
         await asyncio.wait_for(asyncio.shield(queue.join()), timeout=timeout)
@@ -639,7 +702,6 @@ async def wait_queue_safe(queue, consumer_task, params, timeout=120):
 
 
 # ===== 输入 =====
-
 async def human_type_and_submit(page, keyword_item, timeout=10000):
     keyword = keyword_item["name"]
     try:
@@ -672,7 +734,6 @@ async def human_type_and_submit(page, keyword_item, timeout=10000):
 
 
 # ===== 单关键词搜索 =====
-
 async def search_single_keyword_with_page(page, keyword_item, params, max_retries=2):
     """
     搜索单个关键词。
@@ -684,29 +745,9 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
       "sorry"→ 触发了 sorry 页面
     """
     keyword = keyword_item["name"]
-    keyid = keyword_item["id"]
-
-    response_queue = asyncio.Queue()
-    aggregated = ThreadSafeAggregator()
 
     for attempt in range(max_retries):
         try:
-            async def handle_response(response):
-                url = response.url
-                if "google.com/search" not in url:
-                    return
-                if "tbm=isch" not in url and "q=" not in url:
-                    return
-                if response.status in [301, 302]:
-                    return
-                logger.info(f"[Work-{params.worker_id}] 捕获响应: {url}")
-                await response_queue.put(response)
-
-            page.on('response', handle_response)
-            consumer_task = create_child_task(
-                response_consumer(response_queue, keyid, params, aggregated),
-                name=f"Work-{params.worker_id}"
-            )
 
             # --- goto ---
             logger.info(f"[{keyword}] 打开 Google 图片搜索 (尝试 {attempt + 1}/{max_retries})")
@@ -714,7 +755,7 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
             try:
                 task = create_child_task(
                     page.goto(
-                        f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl",
+                        f"https://www.google.com/",
                         wait_until="domcontentloaded",
                         timeout=30000
                     )
@@ -771,61 +812,16 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
             task = create_child_task(human_scroll(page, 3))
             await asyncio.wait_for(task, timeout=60.0)
 
-            # --- 等待响应队列 ---
-            logger.info(f"[{keyword}] 等待响应队列处理...")
-            await wait_queue_safe(response_queue, consumer_task, params, timeout=120)
-
-            # 停止 consumer
-            if not consumer_task.done():
-                await response_queue.put(None)
-                try:
-                    await asyncio.wait_for(consumer_task, timeout=10.0)
-                except asyncio.TimeoutError:
-                    logger.warning(f"[Work-{params.worker_id}] consumer_task 停止超时，强制取消")
-                    consumer_task.cancel()
-                    try:
-                        await consumer_task
-                    except asyncio.CancelledError:
-                        pass
-            else:
-                exc = consumer_task.exception()
-                if exc:
-                    logger.error(f"[Work-{params.worker_id}] consumer_task 异常退出: {exc}")
 
             # --- 数据处理 ---
-            aggregated_data = await aggregated.get_all()
-            logger.info(f"[{keyword}] 聚合数据: {len(aggregated_data['new_datas'])} 条")
-
-            if aggregated_data['new_datas']:
-                unique_domains = list(set(aggregated_data['domains']))
-                unique_related_search = list(set(aggregated_data['related_search'])) if aggregated_data['related_search'] else []
-                unique_related_items = list(set(aggregated_data['related_items'])) if aggregated_data['related_items'] else []
-
-                products = await deal_info_by_async(aggregated_data['new_datas'], params)
-                shopify_products = await deal_shopify_product_info_async(params, products)
-
-                google_item = {
-                    'id': keyid,
-                    'use_proxy_ip': params.proxies.get("server"),
-                    'from': params.proxies.get("server").replace("socks5://", "").split(":")[0],
-                    'word': keyword,
-                    'script': "",
-                    'domains': json.dumps(unique_domains),
-                    'related': json.dumps(unique_related_search),
-                    'items': json.dumps(unique_related_items),
-                    'products': json.dumps(products)
-                }
-
-                if products or shopify_products:
-                    async with aiohttp.ClientSession() as session:
-                        if products:
-                            await send_items_to_api(session, params, google_item)
-                        if shopify_products:
-                            await send_shopify_product_to_api(session, params, shopify_products)
-
-                logger.info(f"[{keyword}] 数据处理完成")
-            else:
-                logger.warning(f"[{keyword}] 没有收集到数据")
+            # todo
+            for i in range(6):
+                ress = await get_links_by_jsname(page)
+                if ress:
+                    await send_links_to_mysql(ress)
+                np = await next_page(page)
+                if not np:
+                    break
 
             # 最终 sorry 检查
             if is_sorry_url(page.url):
@@ -847,8 +843,7 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
 
 
 # ===== 批量搜索（核心改动） =====
-
-async def search_keyword_batch(params, pool: BrowserPool, language_code: str):
+async def search_keyword_batch(params, pool: BrowserPool):
     """
     核心改动：一个 context 连续处理多个关键词，不再每词新建/销毁。
 
@@ -861,7 +856,6 @@ async def search_keyword_batch(params, pool: BrowserPool, language_code: str):
     success_count = 0
     fail_count = 0
     tasks = params.tasks.copy()
-    err_tasks = []
 
     while tasks:
         # 每次 acquire 一个 context，连续处理若干关键词
@@ -895,7 +889,6 @@ async def search_keyword_batch(params, pool: BrowserPool, language_code: str):
             elif result == "sorry":
                 ctx.consecutive_sorry += 1
                 pool.total_sorry += 1
-                err_tasks.append(keyword_item_str)
                 fail_count += 1
                 await params.app.set_fail(params.atm, proxy)
                 logger.warning(f"[Work-{params.worker_id}] 连续 sorry = {ctx.consecutive_sorry}")
@@ -910,14 +903,12 @@ async def search_keyword_batch(params, pool: BrowserPool, language_code: str):
             elif result is None:
                 # 代理连接失败
                 ctx_success = False
-                err_tasks.append(keyword_item_str)
                 fail_count += 1
                 await params.app.set_fail(params.atm, proxy)
                 break
 
             else:
                 # result is False：普通失败
-                err_tasks.append(keyword_item_str)
                 fail_count += 1
                 ctx.fail_count += 1
 
@@ -926,9 +917,8 @@ async def search_keyword_batch(params, pool: BrowserPool, language_code: str):
                 await human_like_sleep()
 
         # 归还 context
-        await pool.release(ctx, proxy=proxy, language_code=language_code, success=ctx_success)
+        await pool.release(ctx, proxy=proxy, language_code='en-US', success=ctx_success)
 
-    if err_tasks:
-        await send_err_task(params, err_tasks)
 
     logger.info(f"[Work-{params.worker_id}] 批次完成 - 成功: {success_count}, 失败: {fail_count}")
+
