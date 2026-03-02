@@ -823,7 +823,16 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
 
 
             # --- 数据处理 ---
-            with aiohttp.ClientSession() as session:
+            headers = {
+                "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0"
+            }
+            timeout = aiohttp.ClientTimeout(
+                total=10,  # 整个请求最大时间（秒）
+                connect=5,  # 连接建立超时
+                sock_read=5,  # 单次读取超时
+                sock_connect=5  # socket连接超时
+            )
+            with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
                 for i in range(6):
                     ress = await get_links_by_jsname(page, session)
                     if ress:
