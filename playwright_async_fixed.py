@@ -823,14 +823,14 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
 
 
             # --- 数据处理 ---
-            # todo
-            for i in range(6):
-                ress = await get_links_by_jsname(page)
-                if ress:
-                    await send_links_to_mysql(ress)
-                np = await next_page(page)
-                if not np:
-                    break
+            with aiohttp.ClientSession() as session:
+                for i in range(6):
+                    ress = await get_links_by_jsname(page, session)
+                    if ress:
+                        await send_links_to_mysql(ress)
+                    np = await next_page(page)
+                    if not np:
+                        break
 
             # 最终 sorry 检查
             if is_sorry_url(page.url):
