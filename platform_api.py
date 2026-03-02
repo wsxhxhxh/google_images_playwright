@@ -165,7 +165,6 @@ async def fetch_tasks_from_api():
         "redis://107.150.40.2:6379",
         decode_responses=True,
         password="pFKfclD2rU$3lib@6",
-
     )
 
     try:

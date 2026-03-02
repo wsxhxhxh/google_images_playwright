@@ -29,7 +29,14 @@ async def send_links_to_mysql(body):
             logger.info(text)
 
 
-async def get_links_by_jsname(page: Page):
+async def test_target_link(session, target_link):
+    async with session.get(target_link) as resp:
+        text = await resp.text()
+        return (resp.status == 200) and ("<frame" in text)
+
+
+
+async def get_links_by_jsname(page: Page, session):
     """
     获取指定 jsname 的所有 a 标签 href
 
@@ -51,11 +58,14 @@ async def get_links_by_jsname(page: Page):
     ress = []
 
     for href in hrefs:
+
         if ("FCKeditor" in href) and ("ckeditor.com" not in href):
+            target_link = href.split("FCKeditor")[0] + "FCKeditor/editor/filemanager/browser/default/browser.html"
+            ok_link = await test_target_link(session, target_link)
             ii = {
                 "domain": urlparse(href).netloc.replace("www.", ""),
                 "source_link": href,
-                "target_link": href.split("FCKeditor")[0] + "FCKeditor/editor/filemanager/browser/default/browser.html"
+                "target_link": target_link if ok_link else None
             }
             ress.append(ii)
     return ress
