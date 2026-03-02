@@ -168,7 +168,7 @@ async def fetch_tasks_from_api():
     )
 
     try:
-        line = await redis.lpop("keyword")
+        line = await redis.spop("keyword")
         return [
             '{"name": "index of fckeditor/editor/filemanager/ ' + line + '", "id": 1}',
             '{"name": "index of admin/fckeditor/editor/filemanager/ ' + line + '", "id": 1}'
