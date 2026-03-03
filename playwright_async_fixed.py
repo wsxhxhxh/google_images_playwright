@@ -881,7 +881,9 @@ async def search_keyword_batch(params, pool: BrowserPool):
         params.proxies = proxy
 
         try:
+            logger.warning(f"ACQUIRE前 idle={pool._idle_queue.qsize()}")
             ctx = await pool.acquire(timeout=60.0)
+            logger.warning(f"ACQUIRE后 idle={pool._idle_queue.qsize()}")
         except TimeoutError as e:
             logger.error(f"[Work-{params.worker_id}] acquire 超时: {e}")
             await asyncio.sleep(5)
@@ -916,7 +918,7 @@ async def search_keyword_batch(params, pool: BrowserPool):
                     break
 
                 # 单次 sorry 先等一会再试（可能是临时的）
-                await asyncio.sleep(random.uniform(30, 60))
+                await asyncio.sleep(random.uniform(5, 10))
 
             elif result is None:
                 # 代理连接失败
