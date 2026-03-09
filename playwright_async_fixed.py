@@ -801,7 +801,7 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
                 unique_related_search = list(set(aggregated_data['related_search'])) if aggregated_data['related_search'] else []
                 unique_related_items = list(set(aggregated_data['related_items'])) if aggregated_data['related_items'] else []
 
-                products = await deal_info_by_async(aggregated_data['new_datas'], params, v)
+                products = await deal_info_by_async(aggregated_data['new_datas'], params, keyword)
                 shopify_products = await deal_shopify_product_info_async(params, products)
 
                 google_item = {
