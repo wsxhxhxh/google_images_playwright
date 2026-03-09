@@ -64,13 +64,14 @@ def deal_product_info_remove_desc(info, key):
     return json.dumps(info)
 
 
-def deal_product_info(info, purl, imageurl):
+def deal_product_info(info, purl, imageurl, keyword):
     """处理产品信息（同步函数，不需要改成异步）"""
     res = deal_product_info_remove_desc(info, "desc")
     if type(res) == str:
         res = json.loads(res)
     res["purl"] = purl
     res["type"] = deal_product_platform_type(purl, imageurl)
+    res["keyword"] = keyword
     return json.dumps(res)
 
 
@@ -125,7 +126,7 @@ def extract_number(text):
     return 0
 
 
-async def deal_info_by_async(productlist, params):
+async def deal_info_by_async(productlist, params, keyword):
     """
     异步处理产品信息
 
@@ -160,8 +161,7 @@ async def deal_info_by_async(productlist, params):
 
         description = json.dumps(select_random_elements(descriptions, params.desimagenum))
         link = get_dic(product, "link")
-        info = deal_product_info(get_dic(product, "info"), link, get_dic(product, "image"))
-
+        info = deal_product_info(get_dic(product, "info"), link, get_dic(product, "image"), keyword)
 
         if params.collect_platform_type:
             cpts = params.collect_platform_type
@@ -237,37 +237,3 @@ async def deal_shopify_product_info_async(params, products):
                 datas.append(d)
 
     return datas
-
-# 使用示例
-async def main():
-    """测试异步函数"""
-    # 模拟产品数据
-    test_products = [
-        {
-            "parent": "test-parent",
-            "index": 0,
-            "word": "Test Product - Brand",
-            "domain": "example.com",
-            "link": "https://example.com/products/test",
-            "image": "https://example.com/cdn/shop/test.jpg",
-            "info": {
-                "desc": "Test description",
-                "brand": "TestBrand",
-                "price": "99.99",
-                "currency": "USD",
-                "score": "4.5",
-                "review": "100"
-            }
-        }
-    ]
-
-    # 测试异步函数
-    result = await deal_info_by_async(test_products, 20, 5)
-    print("异步处理结果:", json.dumps(result, indent=2))
-
-    shopify_result = await deal_shopify_product_info_async(1, 1, result)
-    print("Shopify产品信息:", json.dumps(shopify_result, indent=2))
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
