@@ -17,7 +17,7 @@ class TaskNameFilter(logging.Filter):
         return True
 
 
-formatter = logging.Formatter('"%(asctime)s [%(levelname)s] [%(task_name)s] %(message)s"')
+formatter = logging.Formatter('%(asctime)s [%(levelname)s] [%(task_name)s] %(message)s')
 directory_path = os.path.dirname(os.path.abspath(__file__))
 file_handler = TimedRotatingFileHandler(
     filename=os.path.join(directory_path, 'logs/crawl_google_us_async.log'),
@@ -26,14 +26,15 @@ file_handler = TimedRotatingFileHandler(
     backupCount=99
 )
 file_handler.setFormatter(formatter)
+file_handler.addFilter(TaskNameFilter())
 file_handler.stream.reconfigure(encoding='utf-8')
 
 stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(formatter)
+stream_handler.addFilter(TaskNameFilter())
 stream_handler.stream.reconfigure(encoding='utf-8')
 
 logger = logging.getLogger()
-logger.addFilter(TaskNameFilter())
 logger.setLevel(logging.INFO)
 
 logger.addHandler(file_handler)
