@@ -161,13 +161,12 @@ async def fetch_tasks_from_api(session, dbname, datanum, binddomain):
     try:
         api_url = f"https://{binddomain}/page_data_api.php?datatype=getwordsV1&d={dbname}&datanum={datanum}"
 
-        logger.info(f"获取关键词: {api_url}")
+        logger.info(f"get keyword url: {api_url}")
 
         async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=10), ssl=False) as resp:
             if resp.status == 200:
                 task_data = json.loads(await resp.text())
                 tasks = task_data.get('data', [])
-                logger.info(f"get {len(tasks)} Keywords")
                 return tasks
     except Exception as e:
         logger.error(f"get keyword failed: {e}")

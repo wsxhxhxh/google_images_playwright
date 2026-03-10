@@ -112,10 +112,10 @@ async def monitor_pool(pool: BrowserPool, interval: int = 30):
 
         logger.info(
             f"[Monitor] "
-            f"速度={speed:.1f}词/min | "
+            f"speed={speed:.1f}word/min | "
             f"idle={idle}/{total} | "
-            f"成功={current_success} | "
-            f"sorry累计={pool.total_sorry}"
+            f"success={current_success} | "
+            f"sorry={pool.total_sorry}"
         )
 
         last_success = current_success
