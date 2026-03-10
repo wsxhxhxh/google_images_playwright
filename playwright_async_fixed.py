@@ -192,7 +192,7 @@ async def human_like_sleep():
         t = random.uniform(10, 20)
     else:
         t = random.uniform(22, 30)
-    logger.info(f"关键词间隔 {t:.1f}s")
+    logger.info(f"keyword interval {t:.1f}s")
     await asyncio.sleep(t)
 
 
@@ -247,7 +247,7 @@ class ContextWrapper:
         except Exception:
             pass
         self.browser_wrapper.contexts.discard(self)
-        logger.info(f"Context 退休 (proxy={self.proxy.get('server')}, "
+        logger.info(f"Context kill (proxy={self.proxy.get('server')}, "
                     f"keywords={self.keyword_count}/{self.max_keywords}, "
                     f"sorry={self.consecutive_sorry})")
 
@@ -342,7 +342,7 @@ class BrowserWrapper:
             pass
         await self.start()
         self.fail_count = 0
-        logger.info("Browser 熔断重启完成")
+        logger.info("Browser Restart Success")
 
 
 # ===== BrowserPool =====
@@ -400,7 +400,7 @@ class BrowserPool:
             await bw.start()
             self.browsers.append(bw)
 
-        logger.info(f"启动 {self.max_browser} 个 Browser，预热 {self.total_slots} 个 Context...")
+        logger.info(f"Create {self.max_browser} Browsers, Init {self.total_slots} Contexts...")
 
         proxy_iter = iter(initial_proxies)
         tasks = []
@@ -413,7 +413,7 @@ class BrowserPool:
             tasks.append(self._delayed_create_context(jitter, proxy, language_code))
 
         await asyncio.gather(*tasks)
-        logger.info(f"BrowserPool 预热完成，idle={self._idle_queue.qsize()}")
+        logger.info(f"BrowserPool init success，idle={self._idle_queue.qsize()}")
 
     async def _delayed_create_context(self, delay: float, proxy: dict, language_code: str):
         await asyncio.sleep(delay)
@@ -425,12 +425,12 @@ class BrowserPool:
         try:
             ctx = await browser.new_context(proxy, language_code)
             await self._idle_queue.put(ctx)
-            logger.debug(f"新 Context 入队 (proxy={proxy.get('server')}, idle={self._idle_queue.qsize()})")
+            logger.debug(f"New Context push (proxy={proxy.get('server')}, idle={self._idle_queue.qsize()})")
         except Exception as e:
-            logger.error(f"创建 Context 失败 (proxy={proxy.get('server')}): {e}")
+            logger.error(f"create Context error (proxy={proxy.get('server')}): {e}")
             browser.fail_count += 1
             if browser.fail_count >= self.browser_fail_limit:
-                logger.warning("Browser 熔断重启")
+                logger.warning("Browser kill restart")
                 await browser.restart()
 
     def _select_browser(self) -> BrowserWrapper:
@@ -446,7 +446,7 @@ class BrowserPool:
             ctx.in_use = True
             return ctx
         except asyncio.TimeoutError:
-            raise TimeoutError(f"BrowserPool.acquire 超时 ({timeout}s)，当前 idle={self._idle_queue.qsize()}")
+            raise TimeoutError(f"BrowserPool.acquire Timeout ({timeout}s)，now idle={self._idle_queue.qsize()}")
 
     async def release(self, ctx: ContextWrapper, proxy: dict, language_code: str, success: bool = True):
         """
@@ -472,7 +472,7 @@ class BrowserPool:
         else:
             # 放回队列
             await self._idle_queue.put(ctx)
-            logger.debug(f"Context 归还队列 (keywords={ctx.keyword_count}/{ctx.max_keywords}, "
+            logger.debug(f"Context push list (keywords={ctx.keyword_count}/{ctx.max_keywords}, "
                          f"idle={self._idle_queue.qsize()})")
 
     async def _replenish(self, proxy: dict, language_code: str):
@@ -489,7 +489,7 @@ class BrowserPool:
             except Exception:
                 pass
         await self.playwright.stop()
-        logger.info("BrowserPool shutdown 完成")
+        logger.info("BrowserPool shutdown Success")
 
 
 # ===== 工具函数 =====
@@ -536,7 +536,7 @@ async def handle_cookie_consent(page, timeout=5000):
             if await button.is_visible(timeout=timeout):
                 await asyncio.sleep(random.uniform(0.5, 1.0))
                 await button.click()
-                logger.info("✅ 已点击 Cookie 同意按钮")
+                logger.info("Click Cookie agree button")
                 await asyncio.sleep(random.uniform(0.3, 0.8))
                 return True
         except Exception:
@@ -567,10 +567,10 @@ async def human_scroll(page, steps=6, wait_for_load=True):
         if wait_for_load:
             new_height = await page.evaluate("() => document.body.scrollHeight")
             if new_height == prev_height:
-                logger.info(f"已到达页面底部 (滚动 {i + 1} 次)")
+                logger.info(f"Reached the bottom of the page (Roll {i + 1} times)")
                 break
             else:
-                logger.info(f"页面高度: {prev_height} -> {new_height}")
+                logger.info(f"Page height: {prev_height} -> {new_height}")
         if random.random() < 0.3:
             back_distance = random.randint(100, 300)
             await page.evaluate(f"window.scrollBy(0, -{back_distance})")
@@ -615,14 +615,14 @@ async def response_consumer(queue, task_id, params, aggregated):
             await aggregated.add_related_search(related_search)
             related_items = await get_related_items(body)
             await aggregated.add_related_items(related_items)
-            logger.info(f"[Work-{params.worker_id}] 处理完成，数据: {len(result)}")
+            logger.info(f"[Work-{params.worker_id}] Success，result: {len(result)}")
         except asyncio.TimeoutError:
-            logger.warning(f"[Work-{params.worker_id}] response.text() 超时，跳过")
+            logger.warning(f"[Work-{params.worker_id}] response.text() Timeout，pass")
         except Exception as e:
             if "Target page, context or browser has been closed" in str(e):
-                logger.warning(f"[Work-{params.worker_id}] 页面已关闭")
+                logger.warning(f"[Work-{params.worker_id}] Page close")
             else:
-                logger.exception(f"[Work-{params.worker_id}] 消费异常: {e}")
+                logger.exception(f"[Work-{params.worker_id}] Abnormal: {e}")
         finally:
             queue.task_done()
 
@@ -631,11 +631,11 @@ async def wait_queue_safe(queue, consumer_task, params, timeout=120):
     try:
         await asyncio.wait_for(asyncio.shield(queue.join()), timeout=timeout)
     except asyncio.TimeoutError:
-        logger.warning(f"[Work-{params.worker_id}] queue.join 超时，强制跳出")
+        logger.warning(f"[Work-{params.worker_id}] queue.join Timeout, force quit")
     if consumer_task.done():
         exc = consumer_task.exception()
         if exc:
-            logger.error(f"[Work-{params.worker_id}] consumer_task 异常退出: {exc}")
+            logger.error(f"[Work-{params.worker_id}] consumer_task quit unexpectedly: {exc}")
 
 
 # ===== 输入 =====
@@ -664,10 +664,10 @@ async def human_type_and_submit(page, keyword_item, timeout=10000):
         await page.keyboard.press("Enter")
         await page.wait_for_timeout(random.randint(200, 300))
     except PlaywrightTimeout as e:
-        logger.error(f"人类输入超时: {e}")
+        logger.error(f"Human input timeout: {e}")
         raise
     except Exception as e:
-        logger.exception(f"人类输入异常: {e}")
+        logger.exception(f"Human input unexpectedly: {e}")
         raise
 
 
@@ -699,7 +699,7 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
                     return
                 if response.status in [301, 302]:
                     return
-                logger.info(f"[Work-{params.worker_id}] 捕获响应: {url}")
+                logger.info(f"[Work-{params.worker_id}] capture response: {url}")
                 await response_queue.put(response)
 
             page.on('response', handle_response)
@@ -709,7 +709,7 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
             )
 
             # --- goto ---
-            logger.info(f"[{keyword}] 打开 Google 图片搜索 (尝试 {attempt + 1}/{max_retries})")
+            logger.info(f"[{keyword}] open Google image search (try {attempt + 1}/{max_retries})")
             task = None
             try:
                 task = create_child_task(
@@ -723,7 +723,7 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
 
                 # 前置检查：刚打开就 sorry，直接返回
                 if is_sorry_url(page.url):
-                    logger.warning(f"[{keyword}] goto 后立即触发 sorry: {page.url}")
+                    logger.warning(f"[{keyword}] Sorry is triggered immediately after goto: {page.url}")
                     return "sorry"
 
                 await asyncio.sleep(0.5)
@@ -740,22 +740,22 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
                     "net::ERR_",
                 ]
                 if any(err in error_msg for err in proxy_errors):
-                    logger.error(f"[{keyword}] 代理/网络错误: {error_msg}")
+                    logger.error(f"[{keyword}] proxy/network error: {error_msg}")
                     return None  # 代理失败
                 elif isinstance(e, asyncio.TimeoutError):
                     if task:
                         task.cancel()
-                    logger.error(f"[{keyword}] 页面加载超时 (尝试 {attempt + 1}/{max_retries})")
+                    logger.error(f"[{keyword}] page load Timeout (try {attempt + 1}/{max_retries})")
                     if attempt < max_retries - 1:
                         await asyncio.sleep(3)
                         continue
                     return False
                 else:
-                    logger.exception(f"[{keyword}] 导航失败: {e}")
+                    logger.exception(f"[{keyword}] Navigation failed: {e}")
                     raise
 
             # --- 输入关键词 ---
-            logger.info(f"[{keyword}] 开始输入关键词")
+            logger.info(f"[{keyword}] Input Keyword")
             task = create_child_task(human_type_and_submit(page, keyword_item))
             await asyncio.wait_for(task, timeout=20.0)
 
@@ -763,16 +763,16 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
 
             # 输入后检查 sorry
             if is_sorry_url(page.url):
-                logger.warning(f"[{keyword}] 输入后触发 sorry: {page.url}")
+                logger.warning(f"[{keyword}] Sorry is triggered immediately after Input: {page.url}")
                 return "sorry"
 
             # --- 滚动 ---
-            logger.info(f"[{keyword}] 开始滚动")
+            logger.info(f"[{keyword}] start scroll")
             task = create_child_task(human_scroll(page, 3))
             await asyncio.wait_for(task, timeout=60.0)
 
             # --- 等待响应队列 ---
-            logger.info(f"[{keyword}] 等待响应队列处理...")
+            logger.info(f"[{keyword}] Wait Response queue processing...")
             await wait_queue_safe(response_queue, consumer_task, params, timeout=120)
 
             # 停止 consumer
@@ -781,7 +781,7 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
                 try:
                     await asyncio.wait_for(consumer_task, timeout=10.0)
                 except asyncio.TimeoutError:
-                    logger.warning(f"[Work-{params.worker_id}] consumer_task 停止超时，强制取消")
+                    logger.warning(f"[Work-{params.worker_id}] consumer_task Stop Timeout，Forced cancellation")
                     consumer_task.cancel()
                     try:
                         await consumer_task
@@ -790,11 +790,11 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
             else:
                 exc = consumer_task.exception()
                 if exc:
-                    logger.error(f"[Work-{params.worker_id}] consumer_task 异常退出: {exc}")
+                    logger.error(f"[Work-{params.worker_id}] consumer_task quit unexpectedly: {exc}")
 
             # --- 数据处理 ---
             aggregated_data = await aggregated.get_all()
-            logger.info(f"[{keyword}] 聚合数据: {len(aggregated_data['new_datas'])} 条")
+            logger.info(f"[{keyword}] Aggregate data: {len(aggregated_data['new_datas'])}")
 
             if aggregated_data['new_datas']:
                 unique_domains = list(set(aggregated_data['domains']))
@@ -823,24 +823,24 @@ async def search_single_keyword_with_page(page, keyword_item, params, max_retrie
                         if shopify_products:
                             await send_shopify_product_to_api(session, params, shopify_products)
 
-                logger.info(f"[{keyword}] 数据处理完成")
+                logger.info(f"[{keyword}] Data processing completed")
             else:
-                logger.warning(f"[{keyword}] 没有收集到数据")
+                logger.warning(f"[{keyword}] No data was collected.")
 
             # 最终 sorry 检查
             if is_sorry_url(page.url):
-                logger.warning(f"[{keyword}] 最终检查触发 sorry: {page.url}")
+                logger.warning(f"[{keyword}] Final check triggered sorry: {page.url}")
                 return "sorry"
 
-            logger.info(f"[Success] 完成关键词: {keyword}")
+            logger.info(f"[Success] KeyWord Success: {keyword}")
             return True
 
         except Exception as e:
-            logger.exception(f"[{keyword}] 搜索异常 (尝试 {attempt + 1}/{max_retries}): {e}")
+            logger.exception(f"[{keyword}] search abnormal (try {attempt + 1}/{max_retries}): {e}")
             if attempt < max_retries - 1:
                 await asyncio.sleep(3)
             else:
-                logger.error(f"[{keyword}] 已达最大重试次数，跳过")
+                logger.error(f"[{keyword}] Maximum number of retries reached, Pass")
                 return False
 
     return False
@@ -871,7 +871,7 @@ async def search_keyword_batch(params, pool: BrowserPool, language_code: str):
         try:
             ctx = await pool.acquire(timeout=60.0)
         except TimeoutError as e:
-            logger.error(f"[Work-{params.worker_id}] acquire 超时: {e}")
+            logger.error(f"[Work-{params.worker_id}] acquire Timeout: {e}")
             await asyncio.sleep(5)
             continue
 
@@ -898,7 +898,7 @@ async def search_keyword_batch(params, pool: BrowserPool, language_code: str):
                 err_tasks.append(keyword_item_str)
                 fail_count += 1
                 await params.app.set_fail(params.atm, proxy)
-                logger.warning(f"[Work-{params.worker_id}] 连续 sorry = {ctx.consecutive_sorry}")
+                logger.warning(f"[Work-{params.worker_id}] continuous sorry = {ctx.consecutive_sorry}")
                 if ctx.consecutive_sorry >= 2:
                     # 代理被封，强制退休这个 context
                     ctx_success = False
@@ -931,4 +931,4 @@ async def search_keyword_batch(params, pool: BrowserPool, language_code: str):
     if err_tasks:
         await send_err_task(params, err_tasks)
 
-    logger.info(f"[Work-{params.worker_id}] 批次完成 - 成功: {success_count}, 失败: {fail_count}")
+    logger.info(f"[Work-{params.worker_id}] Batch completed - Success: {success_count}, Failed: {fail_count}")

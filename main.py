@@ -88,7 +88,7 @@ async def worker(worker_id: int, pool: BrowserPool):
                 try:
                     await session.close()
                 except Exception as e:
-                    logger.warning(f"关闭 session 失败: {e}")
+                    logger.warning(f"close session failed: {e}")
 
 async def monitor_pool(pool: BrowserPool, interval: int = 30):
     """
@@ -124,12 +124,12 @@ async def monitor_pool(pool: BrowserPool, interval: int = 30):
 
 async def main():
     try:
-        logger.info("获取平台 Token...")
+        logger.info("get platform Token...")
         await asyncio.wait_for(atm.refresh_token(), timeout=60.0)
         token = await atm.get_token()
         logger.info(f"Token: {token}")
 
-        logger.info(f"拉取 {Config.TOTAL_SLOTS} 个代理用于预热...")
+        logger.info(f"pull {Config.TOTAL_SLOTS} proxies init context...")
         initial_proxies = await app.get_random_proxies(Config.TOTAL_SLOTS)
 
         # language_code 用第一个 worker 的语言即可，后续每个 context 自己的 locale 由指纹随机决定
@@ -152,15 +152,15 @@ async def main():
             t = asyncio.create_task(worker(worker_id + 1, pool), name=f"Work-{worker_id}")
             worker_tasks.append(t)
 
-        logger.info(f"创建了 {len(worker_tasks)} 个 Worker")
+        logger.info(f"Create {len(worker_tasks)} Workers")
 
         asyncio.create_task(monitor_pool(pool, interval=30), name="monitor")
         await asyncio.gather(*worker_tasks)
 
     except asyncio.TimeoutError:
-        logger.error("初始化超时")
+        logger.error("Init Timeout")
     except Exception as e:
-        logger.exception(f"主函数异常: {e}")
+        logger.exception(f"Main Exception: {e}")
 
 
 
@@ -170,8 +170,8 @@ if __name__ == '__main__':
         atm = AsyncTokenManager()
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("程序被用户中断")
+        logger.info("User Kill")
     except Exception as e:
-        logger.exception(f"程序异常退出: {e}")
+        logger.exception(f"Main Exception Quit: {e}")
     finally:
-        logger.info("程序结束")
+        logger.info("Main Finish")
