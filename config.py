@@ -23,9 +23,11 @@ file_handler = TimedRotatingFileHandler(
     backupCount=99
 )
 file_handler.setFormatter(formatter)
+file_handler.addFilter(TaskNameFilter())
 file_handler.stream.reconfigure(encoding='utf-8')
 
 stream_handler = logging.StreamHandler()
+stream_handler.addFilter(TaskNameFilter())
 stream_handler.setFormatter(formatter)
 stream_handler.stream.reconfigure(encoding='utf-8')
 
@@ -35,6 +37,9 @@ logger.setLevel(logging.INFO)
 
 logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
+
+
+
 
 
 class Config:
