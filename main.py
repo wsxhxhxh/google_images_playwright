@@ -75,39 +75,40 @@ async def main():
     link_session = await make_link_session()
 
     async with aiohttp.ClientSession() as session:
-
-        task_info_list = await get_task_info(atm, session)
-        print(task_info_list)
-        if not task_info_list:
-            print("not task sleep 30s")
-            await asyncio.sleep(30)
-
-        task_info = task_info_list[0]
-        task_id = task_info["id"]
         while True:
-            domain_info_list = await fetch_domain_by_task_id(atm, session, task_id)
-            if not domain_info_list:
-                break
-            tasks = [
-                asyncio.create_task(domain_work(domain_info, session, link_session))
-                for domain_info in domain_info_list
-            ]
-            site_result = await asyncio.gather(*tasks)
-            print(site_result)
-            failed_result = [s for s in site_result if s["status"] == 0]
-            success_result = [s for s in site_result if s["status"] == 2]
-            await send_result_batch(atm, session, failed_result)
-            params = SearchTaskParams(
-                worker_id=1,
-                tasks=success_result,
-                proxies=None,
-                app=app,
-                atm=atm,
-                language_code='en-US',
-            )
-            await search_keyword_batch(params)
+            task_info_list = await get_task_info(atm, session)
+            print(task_info_list)
+            if not task_info_list:
+                print("not task sleep 30s")
+                await asyncio.sleep(30)
+                continue
 
-            await send_task_status(atm, session, task_id, 4)
+            task_info = task_info_list[0]
+            task_id = task_info["id"]
+            while True:
+                domain_info_list = await fetch_domain_by_task_id(atm, session, task_id)
+                if not domain_info_list:
+                    break
+                tasks = [
+                    asyncio.create_task(domain_work(domain_info, session, link_session))
+                    for domain_info in domain_info_list
+                ]
+                site_result = await asyncio.gather(*tasks)
+                print(site_result)
+                failed_result = [s for s in site_result if s["status"] == 0]
+                success_result = [s for s in site_result if s["status"] == 2]
+                await send_result_batch(atm, session, failed_result)
+                params = SearchTaskParams(
+                    worker_id=1,
+                    tasks=success_result,
+                    proxies=None,
+                    app=app,
+                    atm=atm,
+                    language_code='en-US',
+                )
+                await search_keyword_batch(params)
+
+                await send_task_status(atm, session, task_id, 4)
 
 
 
