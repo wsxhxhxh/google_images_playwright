@@ -3,6 +3,7 @@ import asyncio
 from typing import Any
 from contextlib import asynccontextmanager
 
+from config import Config
 import aiohttp
 
 from reproduce_r_async import generate_r
@@ -39,10 +40,10 @@ def build_headers() -> dict:
 
 def build_cookies() -> dict:
     return {
-        "latestversion": "25.1216_649.029.474",
-        "linkatb": "b940f0e72c43cbde80f2b6c7091fa2f8",
-        "login_id": "2697",
-        "logincookie": "fbbb61c72123a1bbd85f2f11d2945cc7",
+        "latestversion": Config.LATEST_VERSION,
+        "linkatb": Config.LINK_ATB,
+        "login_id": Config.LOGGING_ID,
+        "logincookie": Config.LOGGING_COOKIE,
         "preference": "whois_days|moz_da|moz_pa|ip|title",
     }
 

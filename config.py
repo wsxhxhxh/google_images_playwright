@@ -183,8 +183,16 @@ class Config:
     COOLDOWN_MIN = 300  # 5 分钟
     COOLDOWN_MAX = 600  # 10 分钟
 
-
-    PROXY_URL = 'https://seosystem.top/prod/api/v1/proxy-group/4/ips'
+    PROXY_URL: str = os.getenv("PROXY_URL", "")
     PROXY_STATUS = 'https://seosystem.top/prod/api/v1/proxy-group-ips/{id}/status'
     TASK_NUM = 20
+    MAX_BROWSER: int = int(os.getenv("MAX_BROWSER", "6"))
+    MAX_CTX_PER_BROWSER: int = int(os.getenv("MAX_CTX_PER_BROWSER", "3"))
+    TOTAL_SLOTS = MAX_BROWSER * MAX_CTX_PER_BROWSER
+    HEADLESS: bool = os.getenv("HEADLESS", "false").lower() == "true"
+    SEED_CIPHER: str = os.getenv("SEED_CIPHER", "")
+    LINK_ATB:str = os.getenv("LINK_ATB", "")
+    LOGGING_COOKIE:str = os.getenv("LOGGING_COOKIE", "")
+    LOGGING_ID:str = os.getenv("LOGGING_ID", "")
+    LATEST_VERSION:str = os.getenv("LATEST_VERSION", "")
 

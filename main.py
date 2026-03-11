@@ -88,6 +88,7 @@ async def main():
             while True:
                 domain_info_list = await fetch_domain_by_task_id(atm, session, task_id)
                 if not domain_info_list:
+                    print("not domain sleep 30s")
                     break
                 tasks = [
                     asyncio.create_task(domain_work(domain_info, session, link_session))

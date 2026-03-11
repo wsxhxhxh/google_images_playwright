@@ -8,8 +8,9 @@ import re
 import time
 import urllib.parse
 from typing import Iterable, Optional
+from config import Config
 
-SEED_CIPHER = "0htWF3Og9kElII2Vjlaw4Dq7lKTvVX7xx26M3"
+SEED_CIPHER = Config.SEED_CIPHER
 DEFAULT_HOST = "www.link114.cn"
 
 
