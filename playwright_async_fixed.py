@@ -749,7 +749,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 await asyncio.sleep(1)
                 current_url = page.url
                 if '/sorry/' in current_url or 'sorry' in current_url:
-                    special_logger.info(f"[work-{params.worker_id}][{keyword}] Verification code")
+                    special_logger.info(f"[work-{params.worker_id}][{keyword}]  Verification code")
                     logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
                     await params.app.set_fail(params.atm, params.proxies)
                     return None
@@ -826,9 +826,10 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 current_url = page.url
                 if '/sorry/' in current_url or 'sorry' in current_url:
                     logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
-                    special_logger.info(f"[work-{params.worker_id}][{keyword}] Verification code")
+                    special_logger.info(f"[work-{params.worker_id}][{keyword}] {params.proxies['server']} Verification code")
                     await params.app.set_fail(params.atm, params.proxies)
                     return None
+                special_logger.info(f"[work-{params.worker_id}][{keyword}] {params.proxies['server']} success")
                 await params.app.set_success(params.atm, params.proxies)
                 return True
 
