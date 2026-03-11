@@ -10,7 +10,7 @@ from playwright.async_api import async_playwright, BrowserContext, Page, Timeout
 from playwright._impl._errors import Error as PlaywrightError
 from typing import Optional
 
-from config import Config, logger
+from config import Config, logger, special_logger
 from deal_product_func_async import deal_info_by_async, deal_shopify_product_info_async
 from parsel_json_str import demo_with_real_data, get_related_search, get_related_items
 from platform_api import send_items_to_api, send_shopify_product_to_api, AsyncProxyPool, send_err_task
@@ -905,6 +905,7 @@ async def search_keyword_batch(params):
 
         err_task += tasks
         if err_task:
+            special_logger.info(f"[work-{params.worker_id}] send err task num ({len(err_task)}): {[_['name'] for _ in err_task]})")
             await send_err_task(params, err_task)
         logger.info(f"批次完成 - 成功: {success_count}, 失败: {fail_count}")
 
