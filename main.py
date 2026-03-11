@@ -55,7 +55,7 @@ async def worker(worker_id: int):
             if not tasks: no_keyword_num += 1
             if no_keyword_num >= 20: await update_task_status(atm, session, task_id)
             logger.info(f"fetch task num: {len(tasks)} {tasks[:3]}...")
-            special_logger.info(f"[work-{worker_id}] fetch task num ({len(tasks)}): {[_['name'] for _ in tasks]}")
+            special_logger.info(f"[work-{worker_id}] fetch task num ({len(tasks)}): {[json.loads(_)['name'] for _ in tasks]}")
 
             params = SearchTaskParams(
                 worker_id=worker_id,
