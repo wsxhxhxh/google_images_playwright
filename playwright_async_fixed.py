@@ -708,6 +708,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                     # ✅ 代理连接失败
                     if "ERR_PROXY_CONNECTION_FAILED" in error_msg:
                         logger.error(f"[{keyword}] 代理连接失败: {params.proxies.get('server')}")
+                        special_logger.info(f"[work-{params.worker_id}][{keyword}] ERR_PROXY_CONNECTION_FAILED")
                         await params.app.set_fail(params.atm, params.proxies)
                         return None  # 标记为代理失败，需要换代理
 
@@ -720,6 +721,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                         "net::ERR_"
                     ]):
                         logger.error(f"[{keyword}] 网络连接失败: {error_msg}")
+                        special_logger.info(f"[work-{params.worker_id}][{keyword}] ERR_TUNNEL_CONNECTION_FAILED")
                         await params.app.set_fail(params.atm, params.proxies)
                         return None
 
@@ -728,6 +730,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                         if task:
                             task.cancel()
                         logger.error(f"[{keyword}] 页面加载超时 (尝试 {attempt + 1}/{max_retries})")
+                        special_logger.info(f"[work-{params.worker_id}][{keyword}] TIME_OUT")
                         if attempt < max_retries - 1:
                             await asyncio.sleep(3)
                             continue
@@ -746,6 +749,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 await asyncio.sleep(1)
                 current_url = page.url
                 if '/sorry/' in current_url or 'sorry' in current_url:
+                    special_logger.info(f"[work-{params.worker_id}][{keyword}] Verification code")
                     logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
                     await params.app.set_fail(params.atm, params.proxies)
                     return None
@@ -822,6 +826,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 current_url = page.url
                 if '/sorry/' in current_url or 'sorry' in current_url:
                     logger.warning(f"[{keyword}] 检测到验证页面: {current_url}")
+                    special_logger.info(f"[work-{params.worker_id}][{keyword}] Verification code")
                     await params.app.set_fail(params.atm, params.proxies)
                     return None
                 await params.app.set_success(params.atm, params.proxies)
