@@ -487,71 +487,6 @@ async def human_scroll_old(page, steps=6):
         await page.evaluate(f"window.scrollTo(0, {pos})")
 
 
-async def response_consumer(queue, task_id, params, aggregated):
-    """
-    消费响应队列,避免阻塞事件循环
-    """
-    while True:
-        response = await queue.get()
-
-        # 停止信号
-        if response is None:
-            queue.task_done()
-            break
-
-        try:
-            # ⭐ 在这里做耗时操作
-            body = await asyncio.wait_for(response.text(), timeout=15.0)
-            result = await demo_with_real_data(body)
-
-            # 收集数据
-            for item in result:
-                if item.get("site", ".jp").endswith('.jp'):
-                    continue
-
-                new_data = {
-                    "index": item.get("id"),
-                    "word": item.get("title"),
-                    "domain": item.get("site"),
-                    "link": item.get("url"),
-                    "image": item.get("image"),
-                    "info": {
-                        "desc": item.get("desc"),
-                        "brand": item.get("brand"),
-                        "price": item.get("price"),
-                        "currency": item.get("currency"),
-                        "score": item.get("score"),
-                        "review": item.get("review"),
-                    },
-                    "parent": task_id,
-                    "stat": -1,
-                    "createdAt": str(datetime.datetime.now(datetime.timezone.utc))
-                }
-                await aggregated.add_data(new_data)
-                await aggregated.add_domain(item.get("site"))
-
-            # 收集 related_search
-            related_search = await get_related_search(body)
-            await aggregated.add_related_search(related_search)
-
-            # 收集 related_items
-            related_items = await get_related_items(body)
-            await aggregated.add_related_items(related_items)
-
-            logger.info(f"[Work-{params.worker_id}] 处理完成,数据: {len(result)}")
-
-        except asyncio.TimeoutError:
-            logger.warning(f"[Work-{params.worker_id}] response.text() 超时，跳过此响应")
-
-        except Exception as e:
-            if "Target page, context or browser has been closed" in str(e):
-                logger.warning(f"[Work-{params.worker_id}] 页面已关闭")
-            else:
-                logger.exception(f"[Work-{params.worker_id}] 消费异常: {e}")
-        finally:
-            queue.task_done()  # ⭐ 标记任务完成
-
-
 async def human_type_and_submit(page, keyword_item, timeout=10000):
     """
     模拟人类输入并提交搜索（使用剪贴板粘贴）
@@ -561,7 +496,7 @@ async def human_type_and_submit(page, keyword_item, timeout=10000):
         keyword_item: 关键词字典
         timeout: 超时时间（毫秒）
     """
-    keyword = keyword_item["name"]
+    keyword = "site:" + keyword_item["domain"]
     try:
         # 等搜索框
         await page.wait_for_selector("textarea.gLFyf", timeout=timeout)
@@ -609,82 +544,16 @@ async def human_type_and_submit(page, keyword_item, timeout=10000):
         raise
 
 
-async def human_type_with_suggestion(page, keyword):
-    """模拟使用Google搜索建议"""
-    input_box = page.locator("textarea.gLFyf")
-    await input_box.click()
-
-    typed = ""
-    target = keyword.lower()
-
-    for ch in keyword:
-        typed += ch
-        await input_box.type(ch, delay=random.randint(80, 150))
-
-        # 给 Google 一点反应时间
-        await page.wait_for_timeout(random.randint(120, 220))
-
-        suggestions = page.locator("li.sbct span")
-        count = await suggestions.count()
-
-        for i in range(count):
-            text = (await suggestions.nth(i).inner_text()).lower()
-
-            # ⭐ 完整命中
-            if text == target:
-                # 用键盘而不是 click（更像人）
-                for _ in range(i):
-                    await page.keyboard.press("ArrowDown")
-                    await page.wait_for_timeout(random.randint(50, 90))
-
-                await page.keyboard.press("Enter")
-                return
-
-    # 如果一直没命中,正常 Enter
-    await page.keyboard.press("Enter")
-
-# 等待队列清空，同时监控 consumer_task 是否还活着
-async def wait_queue_safe(queue, consumer_task, params, timeout=120):
-    try:
-        # 用 wait_for 给 join 加超时
-        await asyncio.wait_for(
-            asyncio.shield(queue.join()),
-            timeout=timeout
-        )
-    except asyncio.TimeoutError:
-        logger.warning(f"[Work-{params.worker_id}] queue.join 等待超时，强制跳出")
-
-    # 检查 consumer 是否意外退出
-    if consumer_task.done():
-        exc = consumer_task.exception()
-        if exc:
-            logger.error(f"[Work-{params.worker_id}] consumer_task 异常退出: {exc}")
-
 async def search_single_keyword(browser, keyword_item, params, max_retries=2):
     """
     搜索单个关键词
     """
     keyword = keyword_item["name"]
-    keyid = keyword_item["id"]
 
     # 创建共享的数据收集器
-    response_queue = asyncio.Queue()
-    aggregated = ThreadSafeAggregator()
     for attempt in range(max_retries):
         try:
             async with ManagedPage(browser, keyword) as page:
-
-                async def handle_response(response):
-                    url = response.url
-                    if "google.com/search" not in url: return
-                    if "tbm=isch" not in url and "q=" not in url: return
-                    if response.status in [301, 302]: return
-
-                    logger.info(f"[Work-{params.worker_id}] 捕获响应: {url}")
-                    await response_queue.put(response)  # 只放入队列,不阻塞
-
-                page.on('response', handle_response)
-                consumer_task = create_child_task(response_consumer(response_queue, keyid, params, aggregated), name=f"Work-{params.worker_id}")
 
                 # 打开 Google 图片搜索
                 logger.info(f"[{keyword}] 正在打开 Google 图片搜索页面 (尝试 {attempt + 1}/{max_retries})")
@@ -692,7 +561,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 try:
                     task = create_child_task(
                         page.goto(
-                            f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl",
+                            f"https://www.google.com",
                             wait_until="domcontentloaded",
                             timeout=30000
                         )
@@ -750,73 +619,9 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                     await params.app.set_fail(params.atm, params.proxies)
                     return None
 
-                # 平滑滚动
-                logger.info(f"[{keyword}] 开始滚动页面")
-                task = create_child_task(human_scroll(page, 3))
-                await asyncio.wait_for(task, timeout=60.0)
-
-                # ⭐ 等待队列清空
-                logger.info(f"[{keyword}] 等待响应队列处理完成...")
-                await wait_queue_safe(response_queue, consumer_task, params, timeout=120)
-
-                # 发停止信号，等 consumer 干净退出
-                if not consumer_task.done():
-                    await response_queue.put(None)
-                    try:
-                        await asyncio.wait_for(consumer_task, timeout=10.0)
-                    except asyncio.TimeoutError:
-                        logger.warning(f"[Work-{params.worker_id}] consumer_task 停止超时，强制取消")
-                        consumer_task.cancel()
-                        try:
-                            await consumer_task
-                        except asyncio.CancelledError:
-                            pass
-                else:
-                    # consumer 已经退出了，看看有没有异常
-                    exc = consumer_task.exception()
-                    if exc:
-                        logger.error(f"[Work-{params.worker_id}] consumer_task 异常退出: {exc}")
-
+                text = await page.locator("#result-stats").text_content()
+                print(text)
                 logger.info(f"[Success] 完成关键词: {keyword}")
-                aggregated_data = await aggregated.get_all()
-                logger.info(f"[{keyword}] 获取聚合数据: {len(aggregated_data['new_datas'])} 条")
-                # 在循环结束后统一处理所有收集到的数据
-                if aggregated_data['new_datas']:
-                    logger.info(f"[{keyword}] 开始处理聚合数据，共 {len(aggregated_data['new_datas'])} 条")
-
-                    # 去重处理（如果需要）
-                    unique_domains = list(set(aggregated_data['domains']))
-                    unique_related_search = list(set(aggregated_data['related_search'])) if aggregated_data[
-                        'related_search'] else []
-                    unique_related_items = list(set(aggregated_data['related_items'])) if aggregated_data[
-                        'related_items'] else []
-
-                    # 统一处理所有数据
-                    products = await deal_info_by_async(aggregated_data['new_datas'], params)
-                    shopify_products = await deal_shopify_product_info_async(params, products)
-
-                    google_item = {
-                        'id': keyid,
-                        'use_proxy_ip': params.proxies.get("server"),
-                        'from': params.proxies.get("server").replace("socks5://", "").split(":")[0],
-                        'word': keyword,
-                        'script': "",
-                        'domains': json.dumps(unique_domains),
-                        'related': json.dumps(unique_related_search),
-                        'items': json.dumps(unique_related_items),
-                        'products': json.dumps(products)
-                    }
-
-                    if products or shopify_products:
-                        async with aiohttp.ClientSession() as session:
-                            if products:
-                                await send_items_to_api(session, params, google_item)
-                            if shopify_products:
-                                await send_shopify_product_to_api(session, params, shopify_products)
-
-                    logger.info(f"[{keyword}] 数据处理完成")
-                else:
-                    logger.warning(f"[{keyword}] 没有收集到任何数据")
 
                 # **检测点1: 检查页面加载后的URL**
                 current_url = page.url
