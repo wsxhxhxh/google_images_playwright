@@ -548,7 +548,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
     """
     搜索单个关键词
     """
-    keyword = keyword_item["name"]
+    keyword = keyword_item["domain"]
 
     # 创建共享的数据收集器
     for attempt in range(max_retries):
