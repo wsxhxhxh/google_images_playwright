@@ -2,7 +2,10 @@
 import os
 import asyncio
 import logging
+from dotenv import load_dotenv
 from logging.handlers import TimedRotatingFileHandler
+
+load_dotenv()
 
 class TaskNameFilter(logging.Filter):
     def filter(self, record):
@@ -196,6 +199,7 @@ class Config:
     TOTAL_SLOTS = MAX_BROWSER * MAX_CTX_PER_BROWSER
     HEADLESS: bool = os.getenv("HEADLESS", "false").lower() == "true"
     SEED_CIPHER: str = os.getenv("SEED_CIPHER", "")
+    print(SEED_CIPHER)
     LINK_ATB:str = os.getenv("LINK_ATB", "")
     LOGGING_COOKIE:str = os.getenv("LOGGING_COOKIE", "")
     LOGGING_ID:str = os.getenv("LOGGING_ID", "")

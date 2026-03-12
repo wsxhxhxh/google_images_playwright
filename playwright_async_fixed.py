@@ -686,7 +686,7 @@ async def search_keyword_batch(params):
         err_task = []
         while tasks:
             keyword_item_str = tasks.pop(0)
-            keyword_item = json.loads(keyword_item_str)
+            keyword_item = keyword_item
             logger.info(f"开始搜索: {keyword_item['name']}")
             success = await search_single_keyword(browser, keyword_item, params)
 

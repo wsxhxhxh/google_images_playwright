@@ -9,6 +9,7 @@ import aiohttp
 from reproduce_r_async import generate_r
 
 DEFAULT_HOST = "www.link114.cn"
+SEED_CIPHER = Config.SEED_CIPHER
 
 
 def build_ssl_context() -> ssl.SSLContext:
