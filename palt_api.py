@@ -132,12 +132,12 @@ async def test():
 
         # test domain
 
-        # items = [{
-        #     "id": 64,
-        #     "status": 0
-        # }]
-        # re11 = await send_result_batch(atm, session, items)
-        #
+        items = [{
+            "id": i,
+            "status": 1
+        } for i in range(300, 400)]
+        await send_result_batch(atm, session, items)
+
         res = await fetch_domain_by_task_id(atm, session, 3)
         print(res)
 

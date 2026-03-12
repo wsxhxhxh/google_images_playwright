@@ -684,6 +684,7 @@ async def search_keyword_batch(params):
         success_count = 0
         fail_count = 0
         tasks = params.tasks.copy()
+        print(tasks)
         err_task = []
         while tasks:
             keyword_item_str = tasks.pop(0)
