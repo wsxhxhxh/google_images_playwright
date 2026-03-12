@@ -208,5 +208,5 @@ class Config:
 
     PROXY_URL = 'https://seosystem.top/prod/api/v1/proxy-group/4/ips'
     PROXY_STATUS = 'https://seosystem.top/prod/api/v1/proxy-group-ips/{id}/status'
-    TASK_NUM = 20
+    TASK_NUM = 10
 
