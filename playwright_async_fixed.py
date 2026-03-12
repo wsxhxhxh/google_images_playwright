@@ -664,7 +664,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
     """
     搜索单个关键词
     """
-    keyword = keyword_item["name"]
+    keyword = keyword_item["domain"]
     keyid = keyword_item["id"]
 
     # 创建共享的数据收集器
@@ -888,7 +888,7 @@ async def search_keyword_batch(params):
         while tasks:
             keyword_item_str = tasks.pop(0)
             keyword_item = json.loads(keyword_item_str)
-            logger.info(f"开始搜索: {keyword_item['name']}")
+            logger.info(f"开始搜索: {keyword_item['domain']}")
             success = await search_single_keyword(browser, keyword_item, params)
 
             if success:
