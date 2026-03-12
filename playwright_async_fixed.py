@@ -620,7 +620,8 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                     return None
 
                 text = await page.locator("#result-stats").text_content()
-                print(text)
+                keyword_item["included_count"] = text
+                print(keyword_item)
                 logger.info(f"[Success] 完成关键词: {keyword}")
 
                 # **检测点1: 检查页面加载后的URL**
@@ -686,7 +687,7 @@ async def search_keyword_batch(params):
         err_task = []
         while tasks:
             keyword_item_str = tasks.pop(0)
-            keyword_item = keyword_item
+            keyword_item = keyword_item_str
             logger.info(f"开始搜索: {keyword_item['name']}")
             success = await search_single_keyword(browser, keyword_item, params)
 
@@ -709,8 +710,7 @@ async def search_keyword_batch(params):
                 err_task.append(keyword_item_str)
 
         err_task += tasks
-        if err_task:
-            await send_err_task(params, err_task)
+
         logger.info(f"批次完成 - 成功: {success_count}, 失败: {fail_count}")
 
     except asyncio.TimeoutError:
