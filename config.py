@@ -37,6 +37,28 @@ logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
 
+
+special_logger = logging.getLogger("special_log")
+special_logger.setLevel(logging.INFO)
+
+special_handler = logging.FileHandler(
+    os.path.join(directory_path, "logs/special.log"),
+    encoding="utf-8"
+)
+
+formatter = logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(message)s"
+)
+
+special_handler.setFormatter(formatter)
+
+special_logger.addHandler(special_handler)
+
+# 关键：禁止传播到 root logger
+special_logger.propagate = False
+
+
+
 class Config:
     # 请求控制
     MAX_IMAGES_PER_SESSION = 50  # 每会话最大图片数

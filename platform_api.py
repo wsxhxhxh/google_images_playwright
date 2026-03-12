@@ -149,7 +149,6 @@ async def fetch_tasks_from_api(session, dbname, datanum, binddomain):
             if resp.status == 200:
                 task_data = json.loads(await resp.text())
                 tasks = task_data.get('data', [])
-                logger.info(f"获取到 {len(tasks)} 个关键词")
                 return tasks
     except Exception as e:
         logger.error(f"获取关键词失败: {e}")
