@@ -138,7 +138,7 @@ async def test():
         } for i in range(300, 400)]
         await send_result_batch(atm, session, items)
 
-        res = await fetch_domain_by_task_id(atm, session, 3)
+        res = await fetch_domain_by_task_id(atm, session, 12)
         print(res)
 
 

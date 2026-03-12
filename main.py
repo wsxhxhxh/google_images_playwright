@@ -2,7 +2,7 @@ import aiohttp
 import asyncio
 from palt_api import fetch_domain_by_task_id, get_task_info, send_result_batch, send_task_status
 from platform_api import AsyncTokenManager, AsyncProxyPool
-from get_res import process_site, make_link_session
+from get_res import process_site, make_link_session, get_rand_seed
 from playwright_async_fixed import search_keyword_batch
 from dataclasses import dataclass
 from typing import Dict, List
@@ -73,6 +73,7 @@ async def main():
     app = AsyncProxyPool()
     await atm.refresh_token()
     link_session = await make_link_session()
+    await get_rand_seed(link_session)
 
     async with aiohttp.ClientSession() as session:
         while True:
@@ -88,8 +89,7 @@ async def main():
             while True:
                 domain_info_list = await fetch_domain_by_task_id(atm, session, task_id)
                 if not domain_info_list:
-                    print("not domain sleep 30s")
-                    await asyncio.sleep(30)
+                    print("not domain break")
                     break
                 tasks = [
                     asyncio.create_task(domain_work(domain_info, session, link_session))
@@ -110,7 +110,7 @@ async def main():
                 )
                 await search_keyword_batch(params)
 
-                # await send_task_status(atm, session, task_id, 4)
+            await send_task_status(atm, session, task_id, 4)
 
 
 

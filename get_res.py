@@ -1,3 +1,4 @@
+import re
 import ssl
 import asyncio
 from typing import Any
@@ -116,6 +117,15 @@ async def process_site(session: aiohttp.ClientSession, site: str) -> dict:
                 tmp["title"] = "NO_IP"
 
     return tmp
+
+
+async def get_rand_seed(session: aiohttp.ClientSession) -> None:
+    url = 'https://www.link114.cn/template/js/main.js'
+    async with session.get(url) as resp:
+        text = await resp.text()
+    seeds = re.findall(r"rand_seed ?= ?str_decode\('(.*?)'\);", text)
+    if seeds:
+        Config.SEED_CIPHER = seeds[0]
 
 
 async def make_link_session():
