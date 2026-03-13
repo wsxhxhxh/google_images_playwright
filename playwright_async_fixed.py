@@ -432,6 +432,11 @@ async def human_mouse_move(page, start, end, steps=30):
     await page.wait_for_timeout(random.randint(5, 20))
 
 
+async def human_scroll_new(page):
+    """滚动到页面底部触发懒加载"""
+    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    await asyncio.sleep(random.uniform(0.3, 0.6))
+
 async def human_scroll(page, steps=6, wait_for_load=True):
     """
     滚动到页面底部触发懒加载
@@ -584,7 +589,7 @@ async def human_type_and_submit(page, keyword_item, timeout=10000):
         await textarea.click(delay=random.randint(50, 120))
 
         # 停顿一下（人会想一想）
-        await page.wait_for_timeout(random.randint(200, 500))
+        await page.wait_for_timeout(random.randint(100, 200))
 
         # 清空（Ctrl+A + Backspace，比 fill 更像人）
         await page.keyboard.down("Control")
@@ -592,14 +597,14 @@ async def human_type_and_submit(page, keyword_item, timeout=10000):
         await page.keyboard.up("Control")
         await page.keyboard.press("Backspace")
 
-        await page.wait_for_timeout(random.randint(100, 300))
+        await page.wait_for_timeout(random.randint(50, 150))
 
         await page.evaluate(f"""
             document.querySelector('textarea.gLFyf').value = {json.dumps(keyword)};
         """)
 
         await page.keyboard.press("Enter")
-        await page.wait_for_timeout(random.randint(200, 300))
+        await page.wait_for_timeout(random.randint(100, 200))
 
     except PlaywrightTimeout as e:
         logger.error(f"人类输入超时: {e}")
@@ -756,7 +761,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
 
                 # 平滑滚动
                 logger.info(f"[{keyword}] 开始滚动页面")
-                task = create_child_task(human_scroll(page, 3))
+                task = create_child_task(human_scroll_new(page))
                 await asyncio.wait_for(task, timeout=60.0)
 
                 # ⭐ 等待队列清空
@@ -912,7 +917,7 @@ async def search_keyword_batch(params):
         err_task += tasks
         if err_task:
             special_logger.info(f"[work-{params.worker_id}] send err task num ({len(err_task)}): {[json.loads(_)['name'] for _ in err_task]})")
-            await send_err_task(params, err_task)
+            # await send_err_task(params, err_task) # pass send err task
         logger.info(f"批次完成 - 成功: {success_count}, 失败: {fail_count}")
 
     except asyncio.TimeoutError:

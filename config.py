@@ -2,7 +2,10 @@
 import os
 import asyncio
 import logging
+from dotenv import load_dotenv
 from logging.handlers import TimedRotatingFileHandler
+
+load_dotenv()
 
 class TaskNameFilter(logging.Filter):
     def filter(self, record):
@@ -206,7 +209,7 @@ class Config:
     COOLDOWN_MAX = 600  # 10 分钟
 
 
-    PROXY_URL = 'https://seosystem.top/prod/api/v1/proxy-group/4/ips'
+    PROXY_URL: str = os.getenv("PROXY_URL", "")
     PROXY_STATUS = 'https://seosystem.top/prod/api/v1/proxy-group-ips/{id}/status'
-    TASK_NUM = 20
+    TASK_NUM: int = int(os.getenv("TASK_NUM", "10"))
 
