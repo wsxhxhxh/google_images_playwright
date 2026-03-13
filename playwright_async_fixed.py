@@ -1,5 +1,4 @@
 import json
-import os
 import random
 import datetime
 import asyncio
@@ -13,8 +12,8 @@ from typing import Optional
 from config import Config, logger, special_logger
 from deal_product_func_async import deal_info_by_async, deal_shopify_product_info_async
 from parsel_json_str import demo_with_real_data, get_related_search, get_related_items
-from platform_api import send_items_to_api, send_shopify_product_to_api, AsyncProxyPool, send_err_task
-from managed import ManagedPage, ResponseTracker, ThreadSafeAggregator
+from platform_api import send_items_to_api, send_shopify_product_to_api, send_err_task, fetch_tasks_from_api, update_task_status
+from managed import ManagedPage, ThreadSafeAggregator
 
 # 全局剪贴板锁，避免多任务间剪贴板操作冲突
 clipboard_lock = asyncio.Lock()
@@ -888,7 +887,13 @@ async def search_keyword_batch(params):
         # 串行执行
         success_count = 0
         fail_count = 0
-        tasks = params.tasks.copy()
+
+        tasks = await fetch_tasks_from_api(params.session, params.dbname, params.datanum, params.binddomain)
+        if not tasks: params.no_keyword_num += 1
+        if params.no_keyword_num >= 20: await update_task_status(params.atm, params.session, params.task_id)
+        logger.info(f"fetch task num: {len(tasks)} {tasks[:3]}...")
+        special_logger.info(f"[work-{params.worker_id}] fetch task num ({len(tasks)}): {[json.loads(_)['name'] for _ in tasks]}")
+
         err_task = []
         while tasks:
             keyword_item_str = tasks.pop(0)
@@ -933,34 +938,3 @@ async def search_keyword_batch(params):
             except Exception as e:
                 logger.error(f"关闭浏览器失败: {e}")
 
-
-# 使用示例
-async def test():
-    from dataclasses import dataclass
-    app1 = AsyncProxyPool()
-    await app1.init_proxy_pool()
-
-    @dataclass
-    class SearchTaskParams:
-        """搜索任务参数类"""
-        worker_id = 1
-        tasks = [
-            "{\"id\":\"487\",\"name\":\"crossbow herbicide before and after\"}",
-        ]
-        dbname = "t0039-c19-de-usgoimg"
-        binddomain = "image8xgs.xyz"
-        language_code = "en-US"
-        usenum = 20
-        desimagenum = 20
-        languageid = 3
-        jxycategory_id = 19
-        proxies = {"server": "socks5://172.96.89.145:1080"}
-        collect_platform_type = None
-        app = app1
-
-    params = SearchTaskParams()
-    await search_keyword_batch(params)
-
-
-if __name__ == "__main__":
-    asyncio.run(test())
