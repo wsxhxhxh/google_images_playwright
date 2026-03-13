@@ -218,7 +218,7 @@ async def send_err_task(params, tasks):
 
     data = {
         "keyword_ids": ids,
-        "status": 0
+        "status": 2  # (0: 未处理, 1: 已取词， 2: 已完成)
     }
 
     domain = params.binddomain
