@@ -72,11 +72,12 @@ async def main():
     atm = AsyncTokenManager()
     app = AsyncProxyPool()
     await atm.refresh_token()
-    link_session = await make_link_session()
-    await get_rand_seed(link_session)
 
-    async with aiohttp.ClientSession() as session:
-        while True:
+
+
+    while True:
+        link_session = await make_link_session()
+        async with aiohttp.ClientSession() as session:
             task_info_list = await get_task_info(atm, session)
             print(task_info_list)
             if not task_info_list:
@@ -99,7 +100,7 @@ async def main():
                 print(site_result)
                 failed_result = [s for s in site_result if s["status"] == 0]
                 success_result = [s for s in site_result if s["status"] == 2]
-                await send_result_batch(atm, session, failed_result)
+                # await send_result_batch(atm, session, failed_result)
                 params = SearchTaskParams(
                     worker_id=1,
                     tasks=success_result,
@@ -108,9 +109,13 @@ async def main():
                     atm=atm,
                     language_code='en-US',
                 )
-                await search_keyword_batch(params)
+                # await search_keyword_batch(params)
+                break
+            # await send_task_status(atm, session, task_id, 4)
+        await link_session.close()
+        break
 
-            await send_task_status(atm, session, task_id, 4)
+
 
 
 

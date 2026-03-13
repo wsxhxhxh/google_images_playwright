@@ -43,7 +43,8 @@ def build_headers() -> dict:
 def build_cookies() -> dict:
     return {
         "latestversion": Config.LATEST_VERSION,
-        "linkatb": Config.LINK_ATB,
+        # "linkatb": Config.LINK_ATB,
+        "btn_more": 1,
         "login_id": Config.LOGGING_ID,
         "logincookie": Config.LOGGING_COOKIE,
         "preference": "whois_days|moz_da|moz_pa|ip|title",
@@ -119,15 +120,6 @@ async def process_site(session: aiohttp.ClientSession, site: str) -> dict:
     return tmp
 
 
-async def get_rand_seed(session: aiohttp.ClientSession) -> None:
-    url = 'https://www.link114.cn/template/js/main.js'
-    async with session.get(url) as resp:
-        text = await resp.text()
-    seeds = re.findall(r"rand_seed ?= ?str_decode\('(.*?)'\);", text)
-    if seeds:
-        Config.SEED_CIPHER = seeds[0]
-
-
 async def make_link_session():
     headers = build_headers()
     cookies = build_cookies()
@@ -138,7 +130,8 @@ async def make_link_session():
     ssl_ctx.verify_mode = ssl.CERT_NONE
     ssl_ctx.set_ciphers("DEFAULT:@SECLEVEL=1")
     connector = aiohttp.TCPConnector(limit=10, ssl=ssl_ctx)
-    return aiohttp.ClientSession(headers=headers, cookies=cookies, timeout=timeout, connector=connector)
+    session = aiohttp.ClientSession(headers=headers, cookies=cookies, timeout=timeout, connector=connector)
+    return session
 
 
 async def main_async() -> None:
