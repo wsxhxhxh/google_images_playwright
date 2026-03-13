@@ -917,7 +917,7 @@ async def search_keyword_batch(params):
         err_task += tasks
         if err_task:
             special_logger.info(f"[work-{params.worker_id}] send err task num ({len(err_task)}): {[json.loads(_)['name'] for _ in err_task]})")
-            # await send_err_task(params, err_task) # pass send err task
+            await send_err_task(params, err_task) # pass send err task
         logger.info(f"批次完成 - 成功: {success_count}, 失败: {fail_count}")
 
     except asyncio.TimeoutError:
