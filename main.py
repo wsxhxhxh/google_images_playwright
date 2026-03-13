@@ -2,7 +2,7 @@ import aiohttp
 import asyncio
 from palt_api import fetch_domain_by_task_id, get_task_info, send_result_batch, send_task_status
 from platform_api import AsyncTokenManager, AsyncProxyPool
-from get_res import process_site, make_link_session, get_rand_seed
+from get_res import process_site, make_link_session
 from playwright_async_fixed import search_keyword_batch
 from dataclasses import dataclass
 from typing import Dict, List
