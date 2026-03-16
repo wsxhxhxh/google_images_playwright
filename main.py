@@ -16,6 +16,7 @@ async def is_ok_site(session, domain):
 
     try:
         async with session.get(domain, timeout=10, ssl=False) as resp:
+            await resp.text()
             return resp.status
     except Exception as e:
         print(e)
@@ -74,8 +75,8 @@ async def main():
     app = AsyncProxyPool()
     await atm.refresh_token()
     while True:
-        link_session = await make_link_session()
         async with aiohttp.ClientSession() as session:
+            link_session = await make_link_session()
             task_info_list = await get_task_info(atm, session)
             print(task_info_list)
             if not task_info_list:
@@ -113,8 +114,7 @@ async def main():
                 await search_keyword_batch(params)
                 break
             await send_task_status(atm, session, task_id, 4)
-
-        await link_session.close()
+            await link_session.close()
         break
 
 if __name__ == '__main__':
