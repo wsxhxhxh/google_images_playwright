@@ -64,6 +64,7 @@ class SearchTaskParams:
     worker_id: int
     language_code: str
     tasks: List
+    session: aiohttp.ClientSession
     proxies: Dict | None
     app: AsyncProxyPool
     atm: AsyncTokenManager
@@ -72,9 +73,6 @@ async def main():
     atm = AsyncTokenManager()
     app = AsyncProxyPool()
     await atm.refresh_token()
-
-
-
     while True:
         link_session = await make_link_session()
         async with aiohttp.ClientSession() as session:
@@ -88,7 +86,8 @@ async def main():
             task_info = task_info_list[0]
             task_id = task_info["id"]
             while True:
-                domain_info_list = await fetch_domain_by_task_id(atm, session, task_id)
+                # domain_info_list = await fetch_domain_by_task_id(atm, session, task_id)
+                domain_info_list = [{"id": 301, "domain": "truckia.co.in"}]
                 if not domain_info_list:
                     print("not domain break")
                     break
@@ -97,27 +96,25 @@ async def main():
                     for domain_info in domain_info_list
                 ]
                 site_result = await asyncio.gather(*tasks)
-                print(site_result)
                 failed_result = [s for s in site_result if s["status"] == 0]
                 success_result = [s for s in site_result if s["status"] == 2]
-                # await send_result_batch(atm, session, failed_result)
+                await send_result_batch(atm, session, failed_result)
+
                 params = SearchTaskParams(
                     worker_id=1,
                     tasks=success_result,
                     proxies=None,
+                    session=session,
                     app=app,
                     atm=atm,
                     language_code='en-US',
                 )
-                # await search_keyword_batch(params)
+                await search_keyword_batch(params)
                 break
-            # await send_task_status(atm, session, task_id, 4)
+            await send_task_status(atm, session, task_id, 4)
+
         await link_session.close()
         break
-
-
-
-
 
 if __name__ == '__main__':
     asyncio.run(main())
