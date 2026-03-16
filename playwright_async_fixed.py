@@ -1,20 +1,17 @@
 import json
-import os
 import random
-import datetime
 import asyncio
 import aiofiles
 
-import aiohttp
 from playwright.async_api import async_playwright, BrowserContext, Page, TimeoutError as PlaywrightTimeout
 from playwright._impl._errors import Error as PlaywrightError
 from typing import Optional
 
 from config import Config, logger
-from deal_product_func_async import deal_info_by_async, deal_shopify_product_info_async
-from parsel_json_str import demo_with_real_data, get_related_search, get_related_items
-from platform_api import send_items_to_api, send_shopify_product_to_api, AsyncProxyPool, send_err_task
-from managed import ManagedPage, ResponseTracker, ThreadSafeAggregator
+
+from platform_api import AsyncProxyPool
+from palt_api import send_result_batch
+from managed import ManagedPage
 
 # 全局剪贴板锁，避免多任务间剪贴板操作冲突
 clipboard_lock = asyncio.Lock()

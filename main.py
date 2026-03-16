@@ -1,6 +1,6 @@
 import aiohttp
 import asyncio
-from palt_api import fetch_domain_by_task_id, get_task_info, send_result_batch, send_task_status
+from palt_api import get_task_info, send_result_batch, send_task_status
 from platform_api import AsyncTokenManager, AsyncProxyPool
 from get_res import process_site, make_link_session
 from playwright_async_fixed import search_keyword_batch
@@ -98,7 +98,8 @@ async def main():
                 site_result = await asyncio.gather(*tasks)
                 failed_result = [s for s in site_result if s["status"] == 0]
                 success_result = [s for s in site_result if s["status"] == 2]
-                await send_result_batch(atm, session, failed_result)
+                if failed_result:
+                    await send_result_batch(atm, session, failed_result)
 
                 params = SearchTaskParams(
                     worker_id=1,
