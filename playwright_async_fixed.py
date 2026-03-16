@@ -619,7 +619,6 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 text = await page.locator("#result-stats").text_content()
                 keyword_item["included_count"] = int(text.replace("About", "").replace("results", "").split().replace(",", ""))
                 print(keyword_item)
-                await send_result_batch(params.atm, params.session, [keyword_item])
                 logger.info(f"[Success] 完成关键词: {keyword}")
 
                 # **检测点1: 检查页面加载后的URL**
@@ -638,6 +637,8 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
             else:
                 logger.error(f"[{keyword}] 已达最大重试次数，跳过")
                 return False
+        finally:
+            await send_result_batch(params.atm, params.session, [keyword_item])
 
     return False
 
