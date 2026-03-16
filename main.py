@@ -1,6 +1,6 @@
 import aiohttp
 import asyncio
-from palt_api import get_task_info, send_result_batch, send_task_status
+from palt_api import get_task_info, send_result_batch, send_task_status, fetch_domain_by_task_id
 from platform_api import AsyncTokenManager, AsyncProxyPool
 from get_res import process_site, make_link_session
 from playwright_async_fixed import search_keyword_batch
@@ -87,8 +87,7 @@ async def main():
             task_info = task_info_list[0]
             task_id = task_info["id"]
             while True:
-                # domain_info_list = await fetch_domain_by_task_id(atm, session, task_id)
-                domain_info_list = [{"id": 301, "domain": "truckia.co.in"}]
+                domain_info_list = await fetch_domain_by_task_id(atm, session, task_id)
                 if not domain_info_list:
                     print("not domain break")
                     break
@@ -112,10 +111,8 @@ async def main():
                     language_code='en-US',
                 )
                 await search_keyword_batch(params)
-                break
-            # await send_task_status(atm, session, task_id, 4)
+            await send_task_status(atm, session, task_id, 4)
             await link_session.close()
-        break
 
 if __name__ == '__main__':
     asyncio.run(main())
