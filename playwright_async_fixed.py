@@ -617,7 +617,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                     return None
 
                 text = await page.locator("#result-stats").text_content()
-                keyword_item["included_count"] = int(text.replace("About", "").replace("results", "").split().replace(",", ""))
+                keyword_item["included_count"] = int(text.replace("About", "").replace("results", "").strip().replace(",", ""))
                 print(keyword_item)
                 logger.info(f"[Success] 完成关键词: {keyword}")
 
