@@ -113,7 +113,7 @@ async def main():
                 )
                 await search_keyword_batch(params)
                 break
-            await send_task_status(atm, session, task_id, 4)
+            # await send_task_status(atm, session, task_id, 4)
             await link_session.close()
         break
 
