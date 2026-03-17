@@ -9,6 +9,10 @@ import aiohttp
 from playwright_async_fixed import search_keyword_batch
 from config import logger, Config
 from platform_api import (AsyncTokenManager, AsyncProxyPool, get_task_info)
+from dblocal import DbManager
+
+
+db = DbManager(db_path="tasks.db")
 
 
 
@@ -32,6 +36,7 @@ class SearchTaskParams:
     session: aiohttp.ClientSession
     app: AsyncProxyPool
     atm: AsyncTokenManager
+    db: DbManager
 
 async def worker(worker_id: int):
     while True:
@@ -71,6 +76,7 @@ async def worker(worker_id: int):
                 session=session,
                 app=app,
                 atm=atm,
+                db=db,
             )
 
             await search_keyword_batch(params)
@@ -96,6 +102,9 @@ async def main():
         await asyncio.wait_for(atm.refresh_token(), timeout=60.0)
         token = await atm.get_token()
         logger.info(f"获取到平台Token: {token}")
+
+        logger.info(f"初始化sqlite")
+        await db.init()
 
         # 创建任务
         tasks = []

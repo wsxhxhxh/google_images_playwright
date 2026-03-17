@@ -14,9 +14,7 @@ from deal_product_func_async import deal_info_by_async, deal_shopify_product_inf
 from parsel_json_str import demo_with_real_data, get_related_search, get_related_items
 from platform_api import send_items_to_api, send_shopify_product_to_api, send_err_task, fetch_tasks_from_api, update_task_status
 from managed import ManagedPage, ThreadSafeAggregator
-
-# 全局剪贴板锁，避免多任务间剪贴板操作冲突
-clipboard_lock = asyncio.Lock()
+from dblocal import DbManager
 
 
 async def block_images(route):
@@ -863,7 +861,7 @@ async def search_keyword_batch(params):
         proxies: 代理配置
     """
     browser = None
-
+    db = params.db
     try:
         while True:
             proxy = await params.app.get_random_proxy()
@@ -884,46 +882,71 @@ async def search_keyword_batch(params):
         task = create_child_task(browser.initialize())
         await asyncio.wait_for(task, timeout=30.0)
 
+        # 从 API 拉取本批任务并写入 SQLite
+        raw_tasks = await fetch_tasks_from_api(
+            params.session, params.dbname, params.datanum, params.binddomain
+        )
+
+        if not raw_tasks:
+            params.no_keyword_num += 1
+            logger.info(f"[work-{params.worker_id}] API 未返回任务 (no_keyword_num={params.no_keyword_num})")
+        else:
+            logger.info(
+                f"[work-{params.worker_id}] fetch task num: {len(raw_tasks)} "
+                f"{[json.loads(t)['name'] for t in raw_tasks[:3]]}..."
+            )
+            special_logger.info(
+                f"[work-{params.worker_id}] fetch task num ({len(raw_tasks)}): "
+                f"{[json.loads(t)['name'] for t in raw_tasks]}"
+            )
+            await load_tasks_into_db(db, raw_tasks, params.task_id)
+
         # 串行执行
         success_count = 0
         fail_count = 0
+        captcha_hit = False
 
-        tasks = await fetch_tasks_from_api(params.session, params.dbname, params.datanum, params.binddomain)
-        if not tasks: params.no_keyword_num += 1
+        # tasks = await fetch_tasks_from_api(params.session, params.dbname, params.datanum, params.binddomain)
+        # if not tasks: params.no_keyword_num += 1
         if params.no_keyword_num >= 20: await update_task_status(params.atm, params.session, params.task_id)
-        logger.info(f"fetch task num: {len(tasks)} {tasks[:3]}...")
-        special_logger.info(f"[work-{params.worker_id}] fetch task num ({len(tasks)}): {[json.loads(_)['name'] for _ in tasks]}")
 
-        err_task = []
-        while tasks:
-            keyword_item_str = tasks.pop(0)
-            keyword_item = json.loads(keyword_item_str)
+        while True:
+            db_task = await db.fetch_one_task_safe()
+            if db_task is None:
+                logger.info(f"[work-{params.worker_id}] SQLite 队列已空，本批结束")
+                break
+
+            keyword_item = {
+                "id": db_task["keyword_id"],
+                "name": db_task["keyword"],
+            }
             logger.info(f"开始搜索: {keyword_item['name']}")
             success = await search_single_keyword(browser, keyword_item, params)
 
             if success:
                 success_count += 1
             elif success is None:
-                # ⭐ 检测到验证页面，立即关闭浏览器并退出循环
-                logger.warning(f"检测到验证页面，立即关闭浏览器并退出")
-                err_task.append(keyword_item_str)
+                # 验证码页面：标记失败，关闭浏览器，退出本批
+                await db.mark_failed(db_task["id"])
+                logger.warning(f"[work-{params.worker_id}] 检测到验证页面，退出本批")
+                captcha_hit = True
                 if browser:
                     try:
                         await asyncio.wait_for(browser.close(), timeout=10.0)
                         logger.info("浏览器已关闭")
-                        browser = None  # 防止 finally 重复关闭
+                        browser = None
                     except Exception as e:
                         logger.error(f"关闭浏览器失败: {e}")
-                break  # 退出循环
+                break
             else:
+                await db.mark_failed(db_task["id"])
                 fail_count += 1
-                err_task.append(keyword_item_str)
 
-        err_task += tasks
-        if err_task:
-            special_logger.info(f"[work-{params.worker_id}] send err task num ({len(err_task)}): {[json.loads(_)['name'] for _ in err_task]})")
-            await send_err_task(params, err_task) # pass send err task
-        logger.info(f"批次完成 - 成功: {success_count}, 失败: {fail_count}")
+        await db.print_stats()
+        logger.info(
+            f"[work-{params.worker_id}] 批次完成 — 成功: {success_count}, 失败: {fail_count}"
+            + (" [验证码中断]" if captcha_hit else "")
+        )
 
     except asyncio.TimeoutError:
         logger.error(f"浏览器初始化超时")
@@ -938,3 +961,29 @@ async def search_keyword_batch(params):
             except Exception as e:
                 logger.error(f"关闭浏览器失败: {e}")
 
+
+async def load_tasks_into_db(db: DbManager, raw_tasks: list, task_id: int):
+    """
+    将 fetch_tasks_from_api 返回的 JSON 字符串列表写入 SQLite。
+
+    raw_tasks 格式:
+        ['{"id":4846,"name":"jam geek bar pulse x"}', '{"id":3005,"name":"..."}']
+
+    写入格式:
+        {"keyword": "jam geek bar pulse x", "keyword_id": 4846, "task_id": <task_id>}
+    """
+    records = []
+    for item_str in raw_tasks:
+        try:
+            item = json.loads(item_str)
+            records.append({
+                "keyword": item["name"],
+                "keyword_id": item["id"],
+                "task_id": task_id,
+            })
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning(f"解析任务条目失败，跳过: {item_str!r} — {e}")
+
+    if records:
+        await db.refresh_tasks(records)
+        logger.info(f"[DB] 写入 {len(records)} 条任务到 SQLite")
