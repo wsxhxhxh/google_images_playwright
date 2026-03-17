@@ -1,6 +1,7 @@
 import asyncio
 import aiosqlite
 from typing import List, Dict, Optional
+from config import logger, special_logger
 
 
 class DbManager:
@@ -219,15 +220,15 @@ class DbManager:
             if count >= self.low_watermark:
                 return
 
-            print(f"[TaskManager] 任务不足({count})，开始自动刷新...")
+            logger.info(f"[TaskManager] 任务不足({count})，开始自动刷新...")
 
             try:
                 new_tasks = await self.fetch_func()
                 if new_tasks:
                     await self.refresh_tasks(new_tasks)
-                    print(f"[TaskManager] 新增任务 {len(new_tasks)} 条")
+                    logger.info(f"[TaskManager] 新增任务 {len(new_tasks)} 条")
             except Exception as e:
-                print("[TaskManager] 自动刷新失败:", e)
+                logger.info("[TaskManager] 自动刷新失败:", e)
 
     async def get_status_stats(self) -> Dict:
         """
@@ -271,7 +272,7 @@ class DbManager:
 
     async def print_stats(self):
         stats = await self.get_status_stats()
-        print(
+        logger.info(
             f"待处理:{stats['pending']} | "
             f"处理中:{stats['processing']} | "
             f"成功:{stats['success']} | "
@@ -292,7 +293,7 @@ async def main():
 
     # 获取任务
     task = await dm.fetch_one_task()
-    print(task)
+    logger.info(task)
 
     if task:
         try:
@@ -302,7 +303,7 @@ async def main():
             await dm.mark_failed(task["id"])
 
     count = await dm.get_pending_count()
-    print("pending:", count)
+    logger.info("pending:", count)
 
     await dm.close()
 
