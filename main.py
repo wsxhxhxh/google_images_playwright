@@ -129,7 +129,9 @@ if __name__ == '__main__':
 
     except KeyboardInterrupt:
         logger.info("KeyboardInterrupt")
+        exit("Bye")
     except Exception as e:
         logger.exception(f"Main Exception: {e}")
     finally:
         logger.info("Bye!!!")
+
