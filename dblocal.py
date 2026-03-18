@@ -245,7 +245,7 @@ class DbManager:
                     await self.refresh_tasks(new_tasks)
                     logger.info(f"[TaskManager] Added tasks {len(new_tasks)}")
             except Exception as e:
-                logger.info("[TaskManager] automatic refresh Failed:", e)
+                logger.info(f"[TaskManager] automatic refresh Failed:{e}")
 
     async def get_status_stats(self) -> Dict:
         """
@@ -327,7 +327,7 @@ async def main():
             await dm.mark_failed(task["id"])
 
     count = await dm.get_pending_count()
-    logger.info("pending:", count)
+    logger.info(f"pending:{count}")
 
     await dm.close()
 
