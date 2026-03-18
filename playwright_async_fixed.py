@@ -883,23 +883,25 @@ async def search_keyword_batch(params):
         await asyncio.wait_for(task, timeout=30.0)
 
         # 从 API 拉取本批任务并写入 SQLite
-        raw_tasks = await fetch_tasks_from_api(
-            params.session, params.dbname, params.datanum, params.binddomain
-        )
+        pending_count = await db.get_pending_count()
+        if pending_count <= Config.TASK_NUM * params.datanum:
+            raw_tasks = await fetch_tasks_from_api(
+                params.session, params.dbname, params.datanum, params.binddomain
+            )
 
-        if not raw_tasks:
-            params.no_keyword_num += 1
-            logger.info(f"[work-{params.worker_id}] API 未返回任务 (no_keyword_num={params.no_keyword_num})")
-        else:
-            logger.info(
-                f"[work-{params.worker_id}] fetch task num: {len(raw_tasks)} "
-                f"{[json.loads(t)['name'] for t in raw_tasks[:3]]}..."
-            )
-            special_logger.info(
-                f"[work-{params.worker_id}] fetch task num ({len(raw_tasks)}): "
-                f"{[json.loads(t)['name'] for t in raw_tasks]}"
-            )
-            await load_tasks_into_db(db, raw_tasks, params.task_id)
+            if not raw_tasks:
+                params.no_keyword_num += 1
+                logger.info(f"[work-{params.worker_id}] API 未返回任务 (no_keyword_num={params.no_keyword_num})")
+            else:
+                logger.info(
+                    f"[work-{params.worker_id}] fetch task num: {len(raw_tasks)} "
+                    f"{[json.loads(t)['name'] for t in raw_tasks[:3]]}..."
+                )
+                special_logger.info(
+                    f"[work-{params.worker_id}] fetch task num ({len(raw_tasks)}): "
+                    f"{[json.loads(t)['name'] for t in raw_tasks]}"
+                )
+                await load_tasks_into_db(db, raw_tasks, params.task_id)
 
         # 串行执行
         success_count = 0

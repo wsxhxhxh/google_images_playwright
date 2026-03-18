@@ -218,8 +218,6 @@ class DbManager:
                 logger.error(f"获取任务失败: {e}")
                 return None
 
-
-
     async def auto_refresh_if_needed(self):
         """
         如果任务数低于阈值，则自动刷新
