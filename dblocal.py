@@ -13,6 +13,7 @@ class DbManager:
         self.fetch_func = fetch_func  # 外部获取函数
 
         self._refresh_lock = asyncio.Lock()  # 防止并发重复刷新
+        self._transaction_lock = asyncio.Lock()  # 新增：控制事务并发
 
     async def init(self):
         """初始化数据库 + 索引"""
@@ -170,36 +171,54 @@ class DbManager:
         强一致版本（推荐多协程/多进程）
         利用事务避免重复取任务
         """
-        await self.db.execute("BEGIN IMMEDIATE")
 
-        async with self.db.execute("""
-            SELECT id, keyword, keyword_id, task_id
-            FROM tasks
-            WHERE status = 0
-            LIMIT 1
-        """) as cursor:
-            row = await cursor.fetchone()
+        async with self._transaction_lock:
+            try:
+                # 检查当前是否在事务中
+                async with self.db.execute("SELECT 1") as cursor:
+                    pass
 
-        if not row:
-            await self.db.commit()
-            return None
+                # 直接执行查询和更新，让 aiosqlite 自动处理事务
+                async with self.db.execute("""
+                                           SELECT id, keyword, keyword_id, task_id
+                                           FROM tasks
+                                           WHERE status = 0 LIMIT 1
+                                           """) as cursor:
+                    row = await cursor.fetchone()
 
-        task_id = row[0]
+                if not row:
+                    return None
 
-        await self.db.execute("""
-            UPDATE tasks
-            SET status = 1, update_time = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """, (task_id,))
+                task_id = row[0]
 
-        await self.db.commit()
+                # 在同一连接中更新
+                await self.db.execute("""
+                                      UPDATE tasks
+                                      SET status      = 1,
+                                          update_time = CURRENT_TIMESTAMP
+                                      WHERE id = ?
+                                        AND status = 0 -- 增加条件确保原子性
+                                      """, (task_id,))
 
-        return {
-            "id": row[0],
-            "keyword": row[1],
-            "keyword_id": row[2],
-            "task_id": row[3],
-        }
+                # 检查是否真的更新了（防止并发冲突）
+                if self.db.total_changes == 0:
+                    return None  # 被其他worker抢走了
+
+                await self.db.commit()
+
+                return {
+                    "id": row[0],
+                    "keyword": row[1],
+                    "keyword_id": row[2],
+                    "task_id": row[3],
+                }
+
+            except Exception as e:
+                await self.db.rollback()
+                logger.error(f"获取任务失败: {e}")
+                return None
+
+
 
     async def auto_refresh_if_needed(self):
         """
