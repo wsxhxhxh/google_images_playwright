@@ -220,15 +220,15 @@ class DbManager:
             if count >= self.low_watermark:
                 return
 
-            logger.info(f"[TaskManager] 任务不足({count})，开始自动刷新...")
+            logger.info(f"[TaskManager] Tasks insufficient({count})，Start automatic refresh...")
 
             try:
                 new_tasks = await self.fetch_func()
                 if new_tasks:
                     await self.refresh_tasks(new_tasks)
-                    logger.info(f"[TaskManager] 新增任务 {len(new_tasks)} 条")
+                    logger.info(f"[TaskManager] Added tasks {len(new_tasks)}")
             except Exception as e:
-                logger.info("[TaskManager] 自动刷新失败:", e)
+                logger.info("[TaskManager] automatic refresh Failed:", e)
 
     async def get_status_stats(self) -> Dict:
         """
@@ -273,11 +273,18 @@ class DbManager:
     async def print_stats(self):
         stats = await self.get_status_stats()
         logger.info(
-            f"待处理:{stats['pending']} | "
-            f"处理中:{stats['processing']} | "
-            f"成功:{stats['success']} | "
-            f"失败:{stats['failed']} | "
-            f"总数:{stats['total']}"
+            f"pending:{stats['pending']} | "
+            f"processing:{stats['processing']} | "
+            f"success:{stats['success']} | "
+            f"failed:{stats['failed']} | "
+            f"total:{stats['total']}"
+        )
+        special_logger.info(
+            f"pending:{stats['pending']} | "
+            f"processing:{stats['processing']} | "
+            f"success:{stats['success']} | "
+            f"failed:{stats['failed']} | "
+            f"total:{stats['total']}"
         )
 
 

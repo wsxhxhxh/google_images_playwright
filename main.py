@@ -12,10 +12,6 @@ from platform_api import (AsyncTokenManager, AsyncProxyPool, get_task_info)
 from dblocal import DbManager
 
 
-db = DbManager(db_path="tasks.db")
-
-
-
 @dataclass
 class SearchTaskParams:
     """搜索任务参数类"""
@@ -93,18 +89,20 @@ async def worker(worker_id: int):
                 try:
                     await session.close()
                 except Exception as e:
-                    logger.warning(f"关闭session失败: {e}")
+                    logger.warning(f"close session failed: {e}")
 
 async def main():
     """主函数"""
     try:
-        logger.info("开始获取平台Token...")
+        logger.info("start get platform Token...")
         await asyncio.wait_for(atm.refresh_token(), timeout=60.0)
         token = await atm.get_token()
-        logger.info(f"获取到平台Token: {token}")
+        logger.info(f"get platform success Token: {token}")
 
-        logger.info(f"初始化sqlite")
+
         await db.init()
+        logger.info(f"tasks.db init success")
+        await db.print_stats()
 
         # 创建任务
         tasks = []
@@ -112,13 +110,13 @@ async def main():
             task = asyncio.create_task(worker(worker_id + 1), name=f"Work-{worker_id}")
             tasks.append(task)
 
-        logger.info(f"创建了 {len(tasks)} 个 Worker 任务")
+        logger.info(f"craet {len(tasks)} 个 Worker task")
         await asyncio.gather(*tasks)
 
     except asyncio.TimeoutError:
-        logger.error("代理池初始化超时")
+        logger.error("init proxies pool failed!")
     except Exception as e:
-        logger.exception(f"主函数异常: {e}")
+        logger.exception(f"Main Exception: {e}")
 
 
 if __name__ == '__main__':
@@ -126,15 +124,12 @@ if __name__ == '__main__':
     try:
         app = AsyncProxyPool()
         atm = AsyncTokenManager()
+        db = DbManager(db_path="tasks.db")
         asyncio.run(main())
 
-    except FileNotFoundError:
-        logger.error("找不到 scratch_3.json 文件")
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON 解析错误: {e}")
     except KeyboardInterrupt:
-        logger.info("程序被用户中断")
+        logger.info("KeyboardInterrupt")
     except Exception as e:
-        logger.exception(f"程序异常退出: {e}")
+        logger.exception(f"Main Exception: {e}")
     finally:
-        logger.info("程序结束")
+        logger.info("Bye!!!")
