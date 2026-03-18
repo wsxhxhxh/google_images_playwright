@@ -884,6 +884,7 @@ async def search_keyword_batch(params):
 
         # 从 API 拉取本批任务并写入 SQLite
         pending_count = await db.get_pending_count()
+        await db.print_stats()
         if pending_count <= Config.TASK_NUM * params.datanum:
             raw_tasks = await fetch_tasks_from_api(
                 params.session, params.dbname, params.datanum, params.binddomain
