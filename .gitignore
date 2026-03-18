@@ -26,6 +26,7 @@ share/python-wheels/
 *.egg
 MANIFEST
 err_ip.txt
+tasks.db
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
