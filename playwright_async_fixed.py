@@ -924,6 +924,7 @@ async def search_keyword_batch(params):
             success = await search_single_keyword(browser, keyword_item, params)
 
             if success:
+                await db.mark_sucess(db_task["id"])
                 success_count += 1
             elif success is None:
                 # 验证码页面：标记失败，关闭浏览器，退出本批
