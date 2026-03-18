@@ -903,6 +903,8 @@ async def search_keyword_batch(params):
                     f"{[json.loads(t)['name'] for t in raw_tasks]}"
                 )
                 await load_tasks_into_db(db, raw_tasks, params.task_id)
+        else:
+            logger.info(f"pending count: {pending_count}, pass fetch keyword")
 
         # 串行执行
         success_count = 0
