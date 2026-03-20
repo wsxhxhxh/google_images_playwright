@@ -613,6 +613,12 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                     await params.app.set_fail(params.atm, params.proxies)
                     return None
 
+                html_content = await page.content()
+                if '- did not match any documents.' in html_content:
+                    keyword_item["included_count"] = 0
+                    keyword_item["status"] = 0
+
+
                 text = await page.locator("#result-stats").text_content()
                 try:
                     keyword_item["included_count"] = int(text.split()[1].replace(",", ""))
@@ -642,8 +648,28 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
 
     return False
 
+async def init_browse(params):
+    while True:
+        proxy = await params.app.get_random_proxy()
+        params.proxies = proxy
+        if proxy:
+            break
+        else:
+            await asyncio.sleep(30)
+    browser = PlaywrightBrowser(
+        chrome_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        language_code=params.language_code,
+        proxies=params.proxies,
+        headless=False
+    )
 
-async def   search_keyword_batch(params):
+    # 初始化浏览器，带超时
+    logger.info(f"初始化浏览器，代理: {params.proxies['server']}")
+    task = create_child_task(browser.initialize())
+    await asyncio.wait_for(task, timeout=30.0)
+    return browser
+
+async def  search_keyword_batch(params):
     """
     批量搜索关键词
 
@@ -660,31 +686,12 @@ async def   search_keyword_batch(params):
     browser = None
 
     try:
-        while True:
-            proxy = await params.app.get_random_proxy()
-            params.proxies = proxy
-            if proxy:
-                break
-            else:
-                await asyncio.sleep(30)
-        browser = PlaywrightBrowser(
-            chrome_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            language_code=params.language_code,
-            proxies=params.proxies,
-            headless=False
-        )
-
-        # 初始化浏览器，带超时
-        logger.info(f"初始化浏览器，代理: {params.proxies['server']}")
-        task = create_child_task(browser.initialize())
-        await asyncio.wait_for(task, timeout=30.0)
+        browser = await init_browse(params)
 
         # 串行执行
         success_count = 0
         fail_count = 0
         tasks = params.tasks.copy()
-        print(tasks)
-        err_task = []
         while tasks:
             keyword_item_str = tasks.pop(0)
             keyword_item = keyword_item_str
@@ -696,20 +703,19 @@ async def   search_keyword_batch(params):
             elif success is None:
                 # ⭐ 检测到验证页面，立即关闭浏览器并退出循环
                 logger.warning(f"检测到验证页面，立即关闭浏览器并退出")
-                err_task.append(keyword_item_str)
+                tasks.append(keyword_item_str)
                 if browser:
                     try:
                         await asyncio.wait_for(browser.close(), timeout=10.0)
                         logger.info("浏览器已关闭")
-                        browser = None  # 防止 finally 重复关闭
+
+                        browser = await init_browse(params)
+
                     except Exception as e:
                         logger.error(f"关闭浏览器失败: {e}")
-                break  # 退出循环
             else:
                 fail_count += 1
-                err_task.append(keyword_item_str)
 
-        err_task += tasks
 
         logger.info(f"批次完成 - 成功: {success_count}, 失败: {fail_count}")
 
