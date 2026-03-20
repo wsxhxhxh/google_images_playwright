@@ -954,6 +954,11 @@ async def search_keyword_batch(params):
             + (" [验证码中断]" if captcha_hit else "")
         )
 
+    except asyncio.CancelledError:
+        if browser:
+            await browser.close()
+        raise
+
     except asyncio.TimeoutError:
         logger.error(f"浏览器初始化超时")
         raise

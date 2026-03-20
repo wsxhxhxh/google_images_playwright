@@ -34,8 +34,8 @@ class SearchTaskParams:
     atm: AsyncTokenManager
     db: DbManager
 
-async def worker(worker_id: int):
-    while True:
+async def worker(worker_id: int, stop_event: asyncio.Event):
+    while not stop_event.is_set():
         session = None
         try:
             session = aiohttp.ClientSession()
@@ -77,6 +77,10 @@ async def worker(worker_id: int):
 
             await search_keyword_batch(params)
 
+        except asyncio.CancelledError:
+            logger.info(f"worker {worker_id} cancelled")
+            break
+
         except IndexError as e:
             logger.info("not task sleep 60s")
             await asyncio.sleep(60)
@@ -93,19 +97,20 @@ async def worker(worker_id: int):
 
 async def main():
     """主函数"""
+    stop_event = asyncio.Event()
+    tasks = []
+
     try:
         logger.info("start get platform Token...")
         await asyncio.wait_for(atm.refresh_token(), timeout=60.0)
         token = await atm.get_token()
         logger.info(f"get platform success Token: {token}")
 
-
         await db.init()
         logger.info(f"tasks.db init success")
         await db.print_stats()
 
         # 创建任务
-        tasks = []
         for worker_id in range(Config.TASK_NUM):
             task = asyncio.create_task(worker(worker_id + 1), name=f"Work-{worker_id}")
             tasks.append(task)
@@ -113,10 +118,28 @@ async def main():
         logger.info(f"craet {len(tasks)} 个 Worker task")
         await asyncio.gather(*tasks)
 
+    except KeyboardInterrupt:
+        logger.info("KeyboardInterrupt received, stopping...")
+
+        # ⭐ 通知 worker 停止
+        stop_event.set()
+
+        # ⭐ 强制取消所有任务
+        for task in tasks:
+            task.cancel()
+
+        # ⭐ 等待任务结束
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
     except asyncio.TimeoutError:
         logger.error("init proxies pool failed!")
     except Exception as e:
         logger.exception(f"Main Exception: {e}")
+
+    finally:
+        await db.close()
+        logger.info("All stopped")
 
 
 if __name__ == '__main__':
