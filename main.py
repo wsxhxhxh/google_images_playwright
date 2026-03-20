@@ -112,7 +112,7 @@ async def main():
 
         # 创建任务
         for worker_id in range(Config.TASK_NUM):
-            task = asyncio.create_task(worker(worker_id + 1), name=f"Work-{worker_id}")
+            task = asyncio.create_task(worker(worker_id + 1, stop_event), name=f"Work-{worker_id}")
             tasks.append(task)
 
         logger.info(f"craet {len(tasks)} 个 Worker task")
