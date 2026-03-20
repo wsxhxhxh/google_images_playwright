@@ -108,16 +108,19 @@ async def main():
                 if failed_result:
                     await send_result_batch(atm, session, failed_result)
 
-                params = SearchTaskParams(
-                    worker_id=1,
-                    tasks=ook_result,
-                    proxies=None,
-                    session=session,
-                    app=app,
-                    atm=atm,
-                    language_code='en-US',
-                )
-                await search_keyword_batch(params)
+                if ook_result:
+                    await send_result_batch(atm, session, ook_result)
+
+                    params = SearchTaskParams(
+                        worker_id=1,
+                        tasks=ook_result,
+                        proxies=None,
+                        session=session,
+                        app=app,
+                        atm=atm,
+                        language_code='en-US',
+                    )
+                    await search_keyword_batch(params)
             await send_task_status(atm, session, task_id, 4)
 
 if __name__ == '__main__':
