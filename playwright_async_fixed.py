@@ -620,8 +620,10 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
 
 
                 text = await page.locator("#result-stats").text_content()
+                text = text.replace("About", "")
+                text = text.strip()
                 try:
-                    keyword_item["included_count"] = int(text.split()[1].replace(",", ""))
+                    keyword_item["included_count"] = int(text.split()[0].replace(",", ""))
                 except:
                     print(text)
                 print(keyword_item)
