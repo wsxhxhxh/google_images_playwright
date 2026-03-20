@@ -103,14 +103,14 @@ async def main():
                         res["status"] = 0
 
                 failed_result = [s for s in ok_result if s["status"] == 0]
-                ok_result = [s for s in ok_result if s["status"] == 2]
+                ook_result = [s for s in ok_result if s["status"] == 2]
 
                 if failed_result:
                     await send_result_batch(atm, session, failed_result)
 
                 params = SearchTaskParams(
                     worker_id=1,
-                    tasks=ok_result,
+                    tasks=ook_result,
                     proxies=None,
                     session=session,
                     app=app,
