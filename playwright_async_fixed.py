@@ -13,9 +13,6 @@ from platform_api import AsyncProxyPool
 from palt_api import send_result_batch
 from managed import ManagedPage
 
-# 全局剪贴板锁，避免多任务间剪贴板操作冲突
-clipboard_lock = asyncio.Lock()
-
 
 async def block_images(route):
     url = route.request.url.lower()
@@ -646,7 +643,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
     return False
 
 
-async def search_keyword_batch(params):
+async def   search_keyword_batch(params):
     """
     批量搜索关键词
 

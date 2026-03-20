@@ -2,7 +2,7 @@ import aiohttp
 import asyncio
 from palt_api import get_task_info, send_result_batch, send_task_status, fetch_domain_by_task_id
 from platform_api import AsyncTokenManager, AsyncProxyPool
-from get_res import process_site, make_link_session
+from link114 import get_link_114_info
 from playwright_async_fixed import search_keyword_batch
 from dataclasses import dataclass
 from typing import Dict, List
@@ -24,7 +24,7 @@ async def is_ok_site(session, domain):
 
 
 
-async def domain_work(domain_info, session, link_session):
+async def domain_work(domain_info, session):
     res = {
         "id": domain_info["id"],
         "domain": domain_info["domain"],
@@ -38,25 +38,7 @@ async def domain_work(domain_info, session, link_session):
         res["status"] = 0
         return res
 
-
-    # 查询link114.cn信息
-    tmp = await process_site(link_session, domain)
-
-
-
-    res["da"] = tmp.get("moz_da")
-    res["pa"] = tmp.get("moz_pa")
-    res["query_result"] = {"create": tmp.get("create")}
-    res["domain_title"] = tmp.get("title")
-    res["server_ip"] = tmp.get("ip")
-
-    res["country"] = tmp.get("location")
-    res["status"] = 2
-
-    if not tmp.get("moz_da") or not tmp.get("moz_pa"):
-        res["status"] = 0
-        return res
-
+    res["status"] = 1
     return res
 
 
@@ -76,7 +58,6 @@ async def main():
     await atm.refresh_token()
     while True:
         async with aiohttp.ClientSession() as session:
-            link_session = await make_link_session()
             task_info_list = await get_task_info(atm, session)
             print(task_info_list)
             if not task_info_list:
@@ -92,18 +73,44 @@ async def main():
                     print("not domain break")
                     break
                 tasks = [
-                    asyncio.create_task(domain_work(domain_info, session, link_session))
+                    asyncio.create_task(domain_work(domain_info, session))
                     for domain_info in domain_info_list
                 ]
                 site_result = await asyncio.gather(*tasks)
                 failed_result = [s for s in site_result if s["status"] == 0]
-                success_result = [s for s in site_result if s["status"] == 2]
+                ok_result = [s for s in site_result if s["status"] == 1]
+                if failed_result:
+                    await send_result_batch(atm, session, failed_result)
+
+                link_data = await get_link_114_info([o["domain"] for o in ok_result])
+
+                for res in ok_result:
+                    domain = res["domain"]
+                    if link_data.get(domain):
+                        tmp = link_data[domain]
+                        res["da"] = tmp.get("moz_da")
+                        res["pa"] = tmp.get("moz_pa")
+                        res["query_result"] = {"create": tmp.get("create")}
+                        res["domain_title"] = tmp.get("title")
+                        res["server_ip"] = tmp.get("ip")
+
+                        res["country"] = tmp.get("location")
+                        res["status"] = 2
+
+                        if not tmp.get("moz_da") or not tmp.get("moz_pa"):
+                            res["status"] = 0
+                    else:
+                        res["status"] = 0
+
+                failed_result = [s for s in ok_result if s["status"] == 0]
+                ok_result = [s for s in ok_result if s["status"] == 2]
+
                 if failed_result:
                     await send_result_batch(atm, session, failed_result)
 
                 params = SearchTaskParams(
                     worker_id=1,
-                    tasks=success_result,
+                    tasks=ok_result,
                     proxies=None,
                     session=session,
                     app=app,
@@ -112,7 +119,6 @@ async def main():
                 )
                 await search_keyword_batch(params)
             await send_task_status(atm, session, task_id, 4)
-            await link_session.close()
 
 if __name__ == '__main__':
     asyncio.run(main())
