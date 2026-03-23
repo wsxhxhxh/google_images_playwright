@@ -61,6 +61,24 @@ special_logger.addHandler(special_handler)
 special_logger.propagate = False
 
 
+data_logger = logging.getLogger("special_log")
+data_logger.setLevel(logging.INFO)
+
+data_handler = logging.FileHandler(
+    os.path.join(directory_path, "logs/special.log"),
+    encoding="utf-8"
+)
+formatter = logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(message)s"
+)
+
+data_handler.setFormatter(formatter)
+
+data_logger.addHandler(data_handler)
+
+# 关键：禁止传播到 root logger
+data_logger.propagate = False
+
 
 class Config:
     # 请求控制

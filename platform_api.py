@@ -7,7 +7,7 @@ from typing import Optional, Dict
 import aiohttp
 
 
-from config import logger, Config
+from config import logger, Config, data_logger
 
 
 class AsyncTokenManager:
@@ -182,7 +182,7 @@ async def send_items_to_api(session, params, item):
     try:
         items_backup = [item]
         data_to_send = json.dumps({'param': [dict(item) for item in items_backup]})
-
+        data_logger.info(f"[{params.worker_id}] {data_to_send}")
         # 使用异步POST请求
         async with session.post(
                 f"https://{params.binddomain}/page_data_api.php?datatype=setwordsV1&d={params.dbname}",
