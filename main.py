@@ -144,17 +144,8 @@ async def main():
 
 if __name__ == '__main__':
     data = []
-    try:
-        app = AsyncProxyPool()
-        atm = AsyncTokenManager()
-        db = DbManager(db_path="tasks.db")
-        asyncio.run(main())
-
-    except KeyboardInterrupt:
-        logger.info("KeyboardInterrupt")
-        exit("Bye")
-    except Exception as e:
-        logger.exception(f"Main Exception: {e}")
-    finally:
-        logger.info("Bye!!!")
+    app = AsyncProxyPool()
+    atm = AsyncTokenManager()
+    db = DbManager(db_path="tasks.db")
+    asyncio.run(main())
 
