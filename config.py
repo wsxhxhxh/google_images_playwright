@@ -61,11 +61,11 @@ special_logger.addHandler(special_handler)
 special_logger.propagate = False
 
 
-data_logger = logging.getLogger("special_log")
+data_logger = logging.getLogger("data_log")
 data_logger.setLevel(logging.INFO)
 
 data_handler = logging.FileHandler(
-    os.path.join(directory_path, "logs/special.log"),
+    os.path.join(directory_path, "logs/send_data.log"),
     encoding="utf-8"
 )
 formatter = logging.Formatter(
