@@ -624,10 +624,13 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 text = text.strip()
                 try:
                     keyword_item["included_count"] = int(text.split()[0].replace(",", ""))
+                    keyword_item["status"] = 2
+                    logger.info(f"[Success] 完成关键词: {keyword}")
                 except:
-                    print(text)
-                print(keyword_item)
-                logger.info(f"[Success] 完成关键词: {keyword}")
+                    keyword_item["included_count"] = 0
+                    keyword_item["status"] = 0
+                    logger.info(text)
+                logger.info(keyword_item)
 
                 # **检测点1: 检查页面加载后的URL**
                 current_url = page.url
