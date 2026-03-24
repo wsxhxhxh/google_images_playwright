@@ -733,35 +733,3 @@ async def  search_keyword_batch(params):
                 await asyncio.wait_for(browser.close(), timeout=10.0)
             except Exception as e:
                 logger.error(f"关闭浏览器失败: {e}")
-
-
-# 使用示例
-async def test():
-    from dataclasses import dataclass
-    app1 = AsyncProxyPool()
-    await app1.init_proxy_pool()
-
-    @dataclass
-    class SearchTaskParams:
-        """搜索任务参数类"""
-        worker_id = 1
-        tasks = [
-            "{\"id\":\"487\",\"name\":\"crossbow herbicide before and after\"}",
-        ]
-        dbname = "t0039-c19-de-usgoimg"
-        binddomain = "image8xgs.xyz"
-        language_code = "en-US"
-        usenum = 20
-        desimagenum = 20
-        languageid = 3
-        jxycategory_id = 19
-        proxies = {"server": "socks5://172.96.89.145:1080"}
-        collect_platform_type = None
-        app = app1
-
-    params = SearchTaskParams()
-    await search_keyword_batch(params)
-
-
-if __name__ == "__main__":
-    asyncio.run(test())

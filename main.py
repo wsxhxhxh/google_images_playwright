@@ -38,7 +38,7 @@ async def domain_work(domain_info, session):
         res["status"] = 0
         return res
 
-    res["status"] = 1
+    res["status"] = 3
     return res
 
 
@@ -76,15 +76,18 @@ async def main():
                     asyncio.create_task(domain_work(domain_info, session))
                     for domain_info in domain_info_list
                 ]
-                site_result = await asyncio.gather(*tasks)
-                failed_result = [s for s in site_result if s["status"] == 0]
-                ok_result = [s for s in site_result if s["status"] == 1]
-                if failed_result:
-                    await send_result_batch(atm, session, failed_result)
+                site_status_result = await asyncio.gather(*tasks)
+                status_not_200 = [s for s in site_status_result if s["status"] == 0]
+                status_200 = [s for s in site_status_result if s["status"] == 3]
+                if status_not_200:
+                    await send_result_batch(atm, session, status_not_200)
 
-                link_data = await get_link_114_info([o["domain"] for o in ok_result])
+                if status_200:
+                    await send_result_batch(atm, session, status_200)
 
-                for res in ok_result:
+                link_data = await get_link_114_info([o["domain"] for o in status_200])
+
+                for res in status_200:
                     domain = res["domain"]
                     if link_data.get(domain):
                         tmp = link_data[domain]
@@ -95,25 +98,23 @@ async def main():
                         res["server_ip"] = tmp.get("ip")
 
                         res["country"] = tmp.get("location")
-                        res["status"] = 2
 
                         if not tmp.get("moz_da") or not tmp.get("moz_pa"):
                             res["status"] = 0
                     else:
                         res["status"] = 0
 
-                failed_result = [s for s in ok_result if s["status"] == 0]
-                ook_result = [s for s in ok_result if s["status"] == 2]
+                no_da_pa = [s for s in status_200 if s["status"] == 0]
+                has_da_pa = [s for s in status_200 if s["status"] == 3]
 
-                if failed_result:
-                    await send_result_batch(atm, session, failed_result)
+                if no_da_pa:
+                    await send_result_batch(atm, session, no_da_pa)
 
-                if ook_result:
-                    await send_result_batch(atm, session, ook_result)
-
+                if has_da_pa:
+                    await send_result_batch(atm, session, has_da_pa)
                     params = SearchTaskParams(
                         worker_id=1,
-                        tasks=ook_result,
+                        tasks=has_da_pa,
                         proxies=None,
                         session=session,
                         app=app,
