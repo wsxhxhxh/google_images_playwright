@@ -16,11 +16,24 @@ async def is_ok_site(session, domain):
 
     try:
         async with session.get(domain, timeout=10, ssl=False) as resp:
-            await resp.text()
-            return resp.status
+            text = await resp.text()
+
+            if '/wp-content/' in text:
+                system_info = 'wordpress'
+            elif 'joomla' in text:
+                system_info = 'Joomla'
+            elif '<div data-mage-init' in text:
+                system_info = 'magento'
+            elif '/catalog/view/' in text:
+                system_info = 'opencart'
+            else:
+                system_info = 'other'
+
+
+            return resp.status, system_info
     except Exception as e:
         print(e)
-        return 0
+        return 0, None
 
 
 
@@ -32,11 +45,12 @@ async def domain_work(domain_info, session):
     domain = domain_info["domain"]
 
     # 获取网站状态
-    site_status = await is_ok_site(session, domain)
+    site_status, system_info = await is_ok_site(session, domain)
     res["http_code"] = site_status
     if not (200 <= site_status < 300):
         res["status"] = 0
         return res
+    res["system_info"] = system_info
 
     res["status"] = 3
     return res
