@@ -40,6 +40,10 @@ async def worker(worker_id: int, stop_event: asyncio.Event):
         try:
             session = aiohttp.ClientSession()
             work_info = await get_task_info(atm, session)
+            if not work_info:
+                logger.info("not task sleep 10s")
+                await asyncio.sleep(10)
+
             dbname = work_info.get("product_db_name")
             datanum = work_info.get("keyword_count")
             binddomain = work_info.get("server_main_domain")
