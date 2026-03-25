@@ -542,6 +542,11 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
     """
     搜索单个关键词
     """
+
+    # ⭐ 防御：浏览器上下文已关闭
+    if browser.context is None:
+        logger.error(f"[{keyword_item['domain']}] 浏览器上下文不可用，跳过")
+        return False
     keyword = keyword_item["domain"]
 
     # 创建共享的数据收集器
@@ -714,18 +719,22 @@ async def  search_keyword_batch(params):
             if success:
                 success_count += 1
             elif success is None:
-                # ⭐ 检测到验证页面，立即关闭浏览器并退出循环
                 logger.warning(f"检测到验证页面，立即关闭浏览器并退出")
-                tasks.append(keyword_item_str)
-                if browser:
-                    try:
-                        await asyncio.wait_for(browser.close(), timeout=10.0)
-                        logger.info("浏览器已关闭")
+                tasks.insert(0, keyword_item_str)  # 用insert(0)而不是append，保持顺序
 
-                        browser = await init_browse(params)
+                # 先关闭旧浏览器
+                old_browser = browser
+                browser = None  # ⭐ 先置None，防止异常后使用旧引用
 
-                    except Exception as e:
-                        logger.error(f"关闭浏览器失败: {e}")
+                try:
+                    await asyncio.wait_for(old_browser.close(), timeout=10.0)
+                    logger.info("旧浏览器已关闭")
+                except Exception as e:
+                    logger.error(f"关闭浏览器失败（忽略）: {e}")
+
+                # 单独try新建浏览器，失败就让外层异常处理
+                browser = await init_browse(params)
+                logger.info(f"新浏览器初始化完成")
             else:
                 fail_count += 1
 
