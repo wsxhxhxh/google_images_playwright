@@ -43,6 +43,7 @@ async def worker(worker_id: int, stop_event: asyncio.Event):
             if not work_info:
                 logger.info("not task sleep 10s")
                 await asyncio.sleep(10)
+                continue
 
             dbname = work_info.get("product_db_name")
             datanum = work_info.get("keyword_count")
