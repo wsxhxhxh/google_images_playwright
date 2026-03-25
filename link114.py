@@ -68,17 +68,29 @@ async def get_link_114_info(domains):
     page = await context.new_page()
     page.on('response', create_response_handler(res_data))
 
-    await page.goto("https://www.link114.cn/do.php?type=login")
-    await asyncio.sleep(0.5)
+    for _ in range(3):
+        try:
+            await page.goto("https://www.link114.cn/do.php?type=login")
+            break
+        except Exception as e:
+            print(e)
+        finally:
+            await asyncio.sleep(0.5)
 
     await page.locator('xpath=//input[@name="username"]').fill('xingji199')
     await page.locator('xpath=//input[@name="passwd"]').fill('Yooo775885@#')
     await page.locator('#do_submit').click()
     await asyncio.sleep(0.5)
 
-    await page.goto("https://www.link114.cn")
-    await asyncio.sleep(0.5)
 
+    for _ in range(3):
+        try:
+            await page.goto("https://www.link114.cn")
+            break
+        except Exception as e:
+            print(e)
+        finally:
+            await asyncio.sleep(0.5)
 
     await page.locator('#ip_websites').fill(domains_str)
 
