@@ -82,8 +82,8 @@ async def worker(worker_id: int, stop_event: asyncio.Event):
             break
 
         except IndexError as e:
-            logger.info("not task sleep 60s")
-            await asyncio.sleep(60)
+            logger.info("not task sleep 10s")
+            await asyncio.sleep(10)
 
         except Exception as e:
             logger.exception(e)
