@@ -99,7 +99,7 @@ async def main():
 
                         res["country"] = tmp.get("location")
 
-                        if not tmp.get("moz_da") or not tmp.get("moz_pa"):
+                        if (not tmp.get("moz_da")) or (not tmp.get("moz_pa")) or (not tmp.get("title")):
                             res["status"] = 0
                     else:
                         res["status"] = 0
