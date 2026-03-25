@@ -630,6 +630,14 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                     keyword_item["included_count"] = 0
                     keyword_item["status"] = 0
                     logger.info(text)
+
+                if keyword_item["included_count"] < 4:
+                    keyword_item["status"] = 0
+                    if keyword_item.get("query_result"):
+                        keyword_item["query_result"]["err_msg"] = "谷歌收录小于4"
+                    else:
+                        keyword_item["query_result"] = {"err_msg": "谷歌收录小于4"}
+
                 logger.info(keyword_item)
 
                 # **检测点1: 检查页面加载后的URL**

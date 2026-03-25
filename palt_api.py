@@ -122,7 +122,7 @@ async def test():
         # task = await get_task_info(atm, session)
         # print(task)
         #
-        await send_task_status(atm, session, 12, 2)
+        # await send_task_status(atm, session, 12, 2)
         #
         # task = await get_task_info(atm, session)
         # print(task)
@@ -132,10 +132,18 @@ async def test():
 
         # test domain
 
+        # items = [{
+        #     "id": i,
+        #     "status": 1
+        # } for i in range(300, 400)]
         items = [{
-            "id": i,
-            "status": 1
-        } for i in range(300, 400)]
+            "id": 771,
+            "status": 0,
+            "query_result": {
+                "create": None,
+                "err_msg": "谷歌收录小于4"
+            }
+        }]
         await send_result_batch(atm, session, items)
         #
         # res = await fetch_domain_by_task_id(atm, session, 12)
