@@ -128,7 +128,7 @@ async def get_task_info(atm, session):
                 if resp.status == 200:
                     data = json.loads(await resp.text())
                     res = data["data"]
-                    if type(res) == list:
+                    if res and type(res) == list:
                         return res[0]
                     return res
 

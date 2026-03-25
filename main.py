@@ -81,7 +81,7 @@ async def worker(worker_id: int, stop_event: asyncio.Event):
             logger.info(f"worker {worker_id} cancelled")
             break
 
-        except IndexError as e:
+        except IndexError:
             logger.info("not task sleep 10s")
             await asyncio.sleep(10)
 
