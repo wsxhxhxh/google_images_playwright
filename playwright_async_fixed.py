@@ -886,9 +886,7 @@ async def search_keyword_batch(params):
         pending_count = await db.get_pending_count()
         await db.print_stats()
         if pending_count <= Config.TASK_NUM * params.datanum:
-            raw_tasks = await fetch_tasks_from_api(
-                params.session, params.dbname, params.datanum, params.binddomain
-            )
+            raw_tasks = await fetch_tasks_from_api(params)
 
             if not raw_tasks:
                 params.no_keyword_num += 1

@@ -16,6 +16,10 @@ from dblocal import DbManager
 class SearchTaskParams:
     """搜索任务参数类"""
     worker_id: int
+    agent_url: str
+    agent_key: str
+    dbuser: str
+    dbpasswd: str
     task_id: int
     tasks: List
     dbname: str
@@ -46,6 +50,11 @@ async def worker(worker_id: int, stop_event: asyncio.Event):
                 continue
 
             dbname = work_info.get("product_db_name")
+            agent_url = work_info.get("agent_url")
+            agent_key = work_info.get("agent_key")
+            dbuser = work_info.get("product_db_user")
+            dbpasswd = work_info.get("product_db_password")
+
             datanum = work_info.get("keyword_count")
             binddomain = work_info.get("server_main_domain")
             usenum = work_info.get("product_count")
@@ -62,6 +71,10 @@ async def worker(worker_id: int, stop_event: asyncio.Event):
             params = SearchTaskParams(
                 worker_id=worker_id,
                 tasks=[],
+                agent_url=agent_url,
+                agent_key=agent_key,
+                dbuser=dbuser,
+                dbpasswd=dbpasswd,
                 dbname=dbname,
                 datanum=datanum,
                 binddomain=binddomain,

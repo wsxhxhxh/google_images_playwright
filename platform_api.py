@@ -129,7 +129,9 @@ async def get_task_info(atm, session):
                     data = json.loads(await resp.text())
                     res = data["data"]
                     if res and type(res) == list:
-                        return res[0]
+                        for rr in res:
+                            if rr["id"] == 101:
+                                return rr
                     return res
 
         except Exception as e:
@@ -138,14 +140,14 @@ async def get_task_info(atm, session):
 
     raise Exception("获取任务信息失败，已重试10次")
 
-async def fetch_tasks_from_api(session, dbname, datanum, binddomain):
+async def fetch_tasks_from_api(params):
     """从 API 获取关键词列表"""
     try:
-        api_url = f"https://{binddomain}/page_data_api.php?datatype=getwordsV1&d={dbname}&datanum={datanum}"
+        api_url = f"{params.agent_url}?action=getwordsV1&d={params.dbname}&db_user={params.dbuser}&db_pass={params.dbpasswd}&secret_key={params.agent_key}&datanum={params.datanum}"
 
         logger.info(f"获取关键词: {api_url}")
 
-        async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=10), ssl=False) as resp:
+        async with params.session.get(api_url, timeout=aiohttp.ClientTimeout(total=10), ssl=False) as resp:
             if resp.status == 200:
                 task_data = json.loads(await resp.text())
                 tasks = task_data.get('data', [])
@@ -176,7 +178,7 @@ async def send_shopify_product_to_api(session, params, item):
     logger.info(
         f"send items shopify product to API use {end_time - start_time:.2f} seconds")
 
-async def send_items_to_api(session, params, item):
+async def send_items_to_api(params, item):
     """异步发送产品数据到API"""
     start_time = time.time()
     try:
@@ -184,9 +186,9 @@ async def send_items_to_api(session, params, item):
         data_to_send = json.dumps({'param': [dict(item) for item in items_backup]})
         data_logger.info(f"[{params.worker_id}] {data_to_send}")
         # 使用异步POST请求
-        async with session.post(
-                f"https://{params.binddomain}/page_data_api.php?datatype=setwordsV1&d={params.dbname}",
-                data=data_to_send,
+        async with params.session.post(
+                f"{params.agent_url}?action=setwordsV1&d={params.dbname}&db_user={params.dbuser}&db_pass={params.dbpasswd}&secret_key={params.agent_key}",
+                json=data_to_send,
                 ssl=False,
                 headers={'Content-Type': 'application/json'}
         ) as response:
@@ -229,7 +231,7 @@ async def send_err_task(params, tasks):
         'Host': domain,
         'Connection': 'keep-alive'
     }
-    url = f"https://{domain}/page_data_api.php?datatype=update_keyword_status&d={params.dbname}"
+    url = f"{params.agent_url}?action=update_keyword_status&d={params.dbname}&db_user={params.dbuser}&db_pass={params.dbpasswd}&secret_key={params.agent_key}"
     try:
         async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as session:
             async with session.post(url, json=data, ssl=False) as response:
@@ -251,54 +253,12 @@ async def update_task_status(atm, session, task_id):
         logger.info(f"update tasks result: {text}")
 
 
-async def testapp():
-    """使用示例"""
-    # 1. 创建代理池实例（不包含异步操作）
-    proxy_pool = AsyncProxyPool()
-
-    # 2. 初始化代理池（包含异步操作）
-    # 注意：这里需要替换为实际的代理API URL
-    await proxy_pool.init_proxy_pool()
-
-    # 3. 获取随机代理
-    proxy = await proxy_pool.get_random_proxy()
-    if proxy:
-        logger.info(f"获取到代理: {proxy}")
-
-        # 4. 模拟使用代理（假设失败）
-        await proxy_pool.set_fail(proxy)
-        await proxy_pool.set_fail(proxy)
-
-        # 5. 再次获取代理
-        proxy2 = await proxy_pool.get_random_proxy()
-        logger.info(f"第二次获取代理: {proxy2}")
-
-        # 6. 模拟使用成功
-        if proxy2:
-            await proxy_pool.set_success(proxy2)
-
-
-    # 7. 查看代理池状态
-    status = await proxy_pool.get_pool_status()
-    logger.info("\n代理池状态:")
-    logger.info(f"总代理数: {status['total_proxies']}")
-    logger.info(f"可用代理: {status['available_proxies']}")
-    logger.info(f"冷却中代理: {status['cooling_proxies']}")
-
-
-    await proxy_pool.set_success(proxy)
-    status = await proxy_pool.get_pool_status()
-    logger.info("\n代理池状态:")
-    logger.info(f"总代理数: {status['total_proxies']}")
-    logger.info(f"可用代理: {status['available_proxies']}")
-    logger.info(f"冷却中代理: {status['cooling_proxies']}")
-
-
 async def main():
     atm = AsyncTokenManager()
 
     async with aiohttp.ClientSession() as session:
-        await update_task_status(atm, session, 78)
+        info = await get_task_info(atm, session)
+        print(info)
 
 if __name__ == '__main__':
     # app = AsyncProxyPool()
