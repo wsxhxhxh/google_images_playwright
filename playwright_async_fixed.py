@@ -816,7 +816,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                     if products or shopify_products:
                         async with aiohttp.ClientSession() as session:
                             if products:
-                                await send_items_to_api(session, params, google_item)
+                                await send_items_to_api(params, google_item)
                             if shopify_products:
                                 await send_shopify_product_to_api(session, params, shopify_products)
 
