@@ -1,3 +1,4 @@
+import re
 import json
 import random
 import asyncio
@@ -9,10 +10,11 @@ from typing import Optional
 
 from config import Config, logger
 
-from platform_api import AsyncProxyPool
 from palt_api import send_result_batch
 from managed import ManagedPage
 
+def contains_japanese_kana(text):
+    return bool(re.search(r'[\u3040-\u30ff]', text))
 
 async def block_images(route):
     url = route.request.url.lower()
@@ -643,6 +645,25 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                     else:
                         keyword_item["query_result"] = {"err_msg": "谷歌收录小于4"}
 
+                html_content = await page.content()
+                is_jp = contains_japanese_kana(html_content)
+
+                if not is_jp:
+                    await go_to_page(page, 5)
+                    await page.wait_for_load_state("domcontentloaded")
+                    html_content = await page.content()
+                    is_jp = contains_japanese_kana(html_content)
+
+                if not is_jp:
+                    await go_to_page(page, 10)
+                    await page.wait_for_load_state("domcontentloaded")
+                    html_content = await page.content()
+                    is_jp = contains_japanese_kana(html_content)
+
+
+                if is_jp:
+                    keyword_item["domain_type"] = 2
+
                 logger.info(keyword_item)
 
                 # **检测点1: 检查页面加载后的URL**
@@ -686,6 +707,19 @@ async def init_browse(params):
     task = create_child_task(browser.initialize())
     await asyncio.wait_for(task, timeout=30.0)
     return browser
+
+
+async def go_to_page(page, page_num):
+    next_page = page.locator("td.NKTSme a.fl")
+    count = await next_page.count()
+    for i in range(count):
+        item = next_page.nth(i)
+        text = await item.text_content()
+
+        if text.strip() == str(page_num):
+            await item.click()
+            break
+
 
 async def  search_keyword_batch(params):
     """
