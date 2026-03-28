@@ -107,14 +107,22 @@ async def main():
                         tmp = link_data[domain]
                         res["da"] = tmp.get("moz_da")
                         res["pa"] = tmp.get("moz_pa")
-                        res["query_result"] = {"create": tmp.get("create")}
                         res["domain_title"] = tmp.get("title")
                         res["server_ip"] = tmp.get("ip")
-
                         res["country"] = tmp.get("location")
 
-                        if (not tmp.get("moz_da")) or (not tmp.get("moz_pa")) or (not tmp.get("title")):
+                        if not res.get("query_result"):
+                            res["query_result"] = {}
+
+                        res["query_result"]["create"] = tmp.get("create")
+
+                        if not tmp.get("title"):
                             res["status"] = 0
+                            res["query_result"]["err_msg"] = "not title"
+
+                        if (not tmp.get("moz_da")) or (not tmp.get("moz_pa")):
+                            res["status"] = 0
+                            res["query_result"]["err_msg"] = "not da or not pa"
                     else:
                         res["status"] = 0
 
