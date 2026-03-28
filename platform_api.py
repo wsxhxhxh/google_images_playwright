@@ -183,7 +183,7 @@ async def send_items_to_api(params, item):
     start_time = time.time()
     try:
         items_backup = [item]
-        data_to_send = json.dumps({'param': [dict(item) for item in items_backup]})
+        data_to_send = {'param': [dict(item) for item in items_backup]}
         data_logger.info(f"[{params.worker_id}] {data_to_send}")
         # 使用异步POST请求
         async with params.session.post(
