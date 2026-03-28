@@ -129,9 +129,7 @@ async def get_task_info(atm, session):
                     data = json.loads(await resp.text())
                     res = data["data"]
                     if res and type(res) == list:
-                        for rr in res:
-                            if rr["id"] == 101:
-                                return rr
+                        return res[0]
                     return res
 
         except Exception as e:
