@@ -282,19 +282,44 @@ if __name__ == '__main__':
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    main_task = loop.create_task(main())
     try:
-        loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        logger.info("KeyboardInterrupt，强制退出...")
+        loop.run_until_complete(main_task)
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("收到退出信号，强制关闭...")
+    except Exception as e:
+        logger.exception(f"main 异常退出: {e}")
     finally:
-        # 取消所有残留任务，最多等 3 秒跑完 finally（关浏览器/DB）
-        pending = asyncio.all_tasks(loop)
+        # ⭐ 取消所有任务后，用一次性的 run_until_complete 等它们结束
+        # 同时屏蔽第二次 Ctrl+C 导致的 KeyboardInterrupt
+        import signal, os
+
+        # Windows 下屏蔽后续 Ctrl+C
+        try:
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+        except Exception:
+            pass
+
+        pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+        for t in pending:
+            t.cancel()
+
         if pending:
-            for t in pending:
-                t.cancel()
+            # run_until_complete 最多跑 3 秒，超时直接放弃
+            async def _wait_cancelled():
+                await asyncio.wait(pending, timeout=3.0)
+
+
             try:
-                loop.run_until_complete(asyncio.wait(pending, timeout=3.0))
+                loop.run_until_complete(_wait_cancelled())
             except Exception:
                 pass
-        loop.close()
+
+        try:
+            loop.close()
+        except Exception:
+            pass
+
         logger.info("进程退出")
+        # 兜底：强杀进程，防止任何残留线程继续阻塞
+        os._exit(0)
