@@ -7,9 +7,8 @@ from typing import Dict, List
 import aiohttp
 
 from playwright_async_fixed import search_keyword_batch
-# from playwright_async_fixed_patch import search_keyword_batch
 from config import logger, Config
-from platform_api import (AsyncTokenManager, AsyncProxyPool, get_task_info, fetch_tasks_from_api)
+from platform_api import (AsyncTokenManager, AsyncProxyPool, get_task_info, fetch_tasks_from_api, update_task_status)
 from dblocal import DbManager
 
 
@@ -73,17 +72,30 @@ async def fetch_and_load_keywords(atm: AsyncTokenManager, db: DbManager):
             _current_task_info = task_info  # 缓存，供 worker 初始化时读取
 
             # ── 2. 根据 task_info 拉取关键词 ──────────────────────
-            # 构造一个轻量 params-like 对象，fetch_tasks_from_api 只需要少数字段
+            # 构造完整的 params-like 对象，字段与 SearchTaskParams 对齐
             class _FakeParams:
                 pass
 
             fake = _FakeParams()
-            fake.session = session
-            fake.dbname   = task_info.get("product_db_name")
-            fake.datanum  = task_info.get("keyword_count", 50)
-            fake.binddomain = task_info.get("server_main_domain")
-            fake.task_id  = task_info.get("id")
-            fake.atm      = atm
+            fake.session      = session
+            fake.atm          = atm
+            # task_info 字段直接透传，保证 fetch_tasks_from_api 能取到任意字段
+            fake.task_id      = task_info.get("id")
+            fake.dbname       = task_info.get("product_db_name")
+            fake.datanum      = task_info.get("keyword_count", 50)
+            fake.binddomain   = task_info.get("server_main_domain")
+            fake.agent_url    = task_info.get("agent_url")
+            fake.agent_key    = task_info.get("agent_key")
+            fake.dbuser       = task_info.get("product_db_user")
+            fake.dbpasswd     = task_info.get("product_db_password")
+            fake.usenum       = task_info.get("product_count")
+            fake.desimagenum  = task_info.get("image_count")
+            fake.languageid   = task_info.get("language_id")
+            fake.language_code = Config.LANGUAGE_CODE_MAP.get(
+                task_info.get("language_code"), "en-US"
+            )
+            fake.jxycategory_id       = task_info.get("category_id")
+            fake.collect_platform_type = task_info.get("collect_platform_type")
 
             raw_tasks = await fetch_tasks_from_api(fake)
             if not raw_tasks:
