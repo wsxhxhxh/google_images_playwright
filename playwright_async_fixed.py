@@ -969,6 +969,8 @@ async def _fetch_task_with_refill(db, params, max_wait_rounds: int = 6) -> dict 
       2. 每轮等 10s，最多等 max_wait_rounds 轮
       3. 仍然没有则返回 None
     """
+
+
     db_task = await db.fetch_one_task_safe(task_id=params.task_id)
     if db_task:
         return db_task
@@ -976,8 +978,20 @@ async def _fetch_task_with_refill(db, params, max_wait_rounds: int = 6) -> dict 
     logger.info(f"[Worker-{params.worker_id}] SQLite 暂无任务，触发补词...")
 
     for round_i in range(1, max_wait_rounds + 1):
-        # 用 await 而非 create_task，确保补词完成后再取
-        await db.auto_refresh_if_needed()
+        # ⭐ 直接调 fetch_func，跳过水线判断，强制去平台拉新 task_info + 新关键词
+        if db.fetch_func:
+            try:
+                await db.fetch_func()
+            except Exception as e:
+                logger.error(f"[Worker-{params.worker_id}] 补词异常: {e}")
+
+        from main import _current_task_info
+        if _current_task_info and _current_task_info.get("id") != params.task_id:
+            logger.info(
+                f"[Worker-{params.worker_id}] task_id 更新: "
+                f"{params.task_id} -> {_current_task_info.get('id')}"
+            )
+            params.task_id = _current_task_info.get("id")
 
         db_task = await db.fetch_one_task_safe(task_id=params.task_id)
         if db_task:
