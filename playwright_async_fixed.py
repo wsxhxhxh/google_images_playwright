@@ -73,9 +73,12 @@ class PlaywrightBrowser:
         self.proxies = proxies
         self.headless = headless
 
+        # ⭐ 提前初始化为 None，close() 里的 if 判断才不会 AttributeError
         self.playwright = None
-        self.context: Optional[BrowserContext] = None
-        self.page: Optional[Page] = None
+        self.browser = None
+        self.context = None
+        self.page = None
+        self.guard_page = None
 
     async def __aenter__(self):
         """异步上下文管理器入口"""
@@ -312,44 +315,41 @@ class PlaywrightBrowser:
         await element.type(text, delay=delay)
 
     async def close(self):
-        """改进的关闭方法"""
-        errors = []
-
-        # 1. 先关闭所有页面
+        """安全关闭：每一步独立 try/except，不让前面的失败阻断后面的清理"""
+        # 1. 关所有页面
         if self.context:
             try:
-                pages = self.context.pages
-                for page in pages:
+                for page in list(self.context.pages):
                     try:
                         await asyncio.wait_for(page.close(), timeout=5.0)
-                    except Exception as e:
-                        errors.append(f"关闭页面失败: {e}")
-            except Exception as e:
-                errors.append(f"获取页面列表失败: {e}")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
-        # 2. 关闭上下文
+        # 2. 关 context
         if self.context:
             try:
                 await asyncio.wait_for(self.context.close(), timeout=5.0)
-            except Exception as e:
-                errors.append(f"关闭上下文失败: {e}")
+            except Exception:
+                pass
+            self.context = None
 
-        # 3. 关闭浏览器
+        # 3. 关 browser
         if self.browser:
             try:
                 await asyncio.wait_for(self.browser.close(), timeout=5.0)
-            except Exception as e:
-                errors.append(f"关闭浏览器失败: {e}")
+            except Exception:
+                pass
+            self.browser = None
 
-        # 4. 停止playwright
+        # 4. 停 playwright
         if self.playwright:
             try:
                 await asyncio.wait_for(self.playwright.stop(), timeout=5.0)
-            except Exception as e:
-                errors.append(f"停止Playwright失败: {e}")
-
-        if errors:
-            logger.warning(f"关闭时遇到错误: {errors}")
+            except Exception:
+                pass
+            self.playwright = None
 
     async def create_new_page(self) -> Page:
         """创建一个新的独立页面（不覆盖 self.page）"""
@@ -363,6 +363,23 @@ class PlaywrightBrowser:
 
         return page
 
+async def _safe_close_browser(browser, worker_id):
+    """关浏览器时屏蔽 CancelledError，保证 Ctrl+C 时也能执行完"""
+    if browser is None:
+        return
+    try:
+        # 用 shield 防止外部 cancel 打断关闭过程
+        await asyncio.shield(
+            asyncio.wait_for(browser.close(), timeout=10.0)
+        )
+        logger.info(f"[Worker-{worker_id}] 浏览器已关闭")
+    except asyncio.TimeoutError:
+        logger.warning(f"[Worker-{worker_id}] 关闭浏览器超时")
+    except asyncio.CancelledError:
+        # shield 本身也可能抛 CancelledError（外部 cancel 发生在 shield 等待期间）
+        logger.warning(f"[Worker-{worker_id}] 关闭浏览器时被取消，忽略")
+    except Exception as e:
+        logger.error(f"[Worker-{worker_id}] 关闭浏览器失败: {e}")
 
 async def handle_cookie_consent(page, timeout=5000):
     """
@@ -941,12 +958,8 @@ async def search_keyword_batch(params):
         raise
 
     finally:
-        if browser:
-            try:
-                await asyncio.wait_for(browser.close(), timeout=10.0)
-                logger.info(f"[Worker-{params.worker_id}] 浏览器已关闭")
-            except Exception as e:
-                logger.error(f"[Worker-{params.worker_id}] 关闭浏览器失败: {e}")
+        # ⭐ 用 _safe_close_browser，CancelledError 不会阻止浏览器关闭
+        await _safe_close_browser(browser, params.worker_id)
 
 
 async def _fetch_task_with_refill(db, params, max_wait_rounds: int = 6) -> dict | None:

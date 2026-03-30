@@ -134,19 +134,19 @@ async def worker(worker_id: int, stop_event: asyncio.Event, db: DbManager,
     """
     global _current_task_info
 
-    logger.info(f"[Worker-{worker_id}] 启动")
+    logger.info(f"启动")
 
     while not stop_event.is_set():
         # ── 等待 SQLite 中出现任务 ──────────────────────────────
         pending = await db.get_pending_count()
         if pending == 0:
-            logger.info(f"[Worker-{worker_id}] SQLite 暂无任务，等待 10s")
+            logger.info(f"SQLite 暂无任务，等待 10s")
             await asyncio.sleep(10)
             continue
 
         # ── 等待 task_info 就绪（补词协程可能还在跑）──────────────
         if _current_task_info is None:
-            logger.info(f"[Worker-{worker_id}] task_info 尚未就绪，等待 5s")
+            logger.info(f"task_info 尚未就绪，等待 5s")
             await asyncio.sleep(5)
             continue
 
@@ -256,7 +256,13 @@ async def main():
         stop_event.set()
         for t in worker_tasks:
             t.cancel()
-        await asyncio.gather(*worker_tasks, return_exceptions=True)
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*worker_tasks, return_exceptions=True),
+                timeout=15.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("部分 Worker 未在 15s 内退出，强制结束")
 
     except asyncio.TimeoutError:
         logger.error("初始化超时（Token 获取失败）")
