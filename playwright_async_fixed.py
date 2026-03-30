@@ -914,7 +914,7 @@ async def search_keyword_batch(params):
         if params.no_keyword_num >= 20: await update_task_status(params.atm, params.session, params.task_id)
 
         while True:
-            db_task = await db.fetch_one_task_safe()
+            db_task = await db.fetch_one_task_safe(task_id=params.task_id)
             if db_task is None:
                 logger.info(f"[work-{params.worker_id}] SQLite 队列已空，本批结束")
                 break
