@@ -279,4 +279,22 @@ if __name__ == '__main__':
     app = AsyncProxyPool()
     atm = AsyncTokenManager()
     db  = DbManager(db_path="tasks.db")   # low_watermark 会在 main() 里动态设置
-    asyncio.run(main())
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        logger.info("KeyboardInterrupt，强制退出...")
+    finally:
+        # 取消所有残留任务，最多等 3 秒跑完 finally（关浏览器/DB）
+        pending = asyncio.all_tasks(loop)
+        if pending:
+            for t in pending:
+                t.cancel()
+            try:
+                loop.run_until_complete(asyncio.wait(pending, timeout=3.0))
+            except Exception:
+                pass
+        loop.close()
+        logger.info("进程退出")
