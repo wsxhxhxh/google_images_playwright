@@ -849,19 +849,8 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
 async def search_keyword_batch(params):
     """
     批量搜索关键词。
-
-    新逻辑：
-      - 每次调用从 SQLite 最多取 datanum 条任务，在同一个浏览器里跑完后关闭。
-      - 低水线补词由 DbManager.auto_refresh_if_needed 自动触发，
-        这里不再主动 fetch_tasks_from_api。
-      - 验证码 / 代理失败时立即关闭浏览器并退出本批，由上层 worker 循环重启。
+    每次调用从 SQLite 最多取 datanum 条任务，在同一个浏览器里跑完后关闭。
     """
-    import json
-    import aiohttp
-    from config import logger, Config
-    from platform_api import send_items_to_api, send_shopify_product_to_api, update_task_status
-    from deal_product_func_async import deal_info_by_async, deal_shopify_product_info_async
-
     db = params.db
     browser = None
 
@@ -892,22 +881,15 @@ async def search_keyword_batch(params):
         success_count = 0
         fail_count    = 0
         captcha_hit   = False
-        processed     = 0           # 本批已处理数量
+        processed     = 0
 
         while processed < params.datanum:
-            # ── 3-a. 触发低水线检查（会在后台补词）─────────────────
-            await db.auto_refresh_if_needed()
 
-            # ── 3-b. 从 SQLite 取一条任务 ────────────────────────
-            db_task = await db.fetch_one_task_safe(task_id=params.task_id)
+            # ── 3-a. 取任务（取不到则触发补词并等待）────────────────
+            db_task = await _fetch_task_with_refill(db, params)
             if db_task is None:
-                logger.info(f"[Worker-{params.worker_id}] SQLite 暂无任务，等待 10s")
-                await asyncio.sleep(10)
-                # 等待后再试一次，如果还是没有就结束本批（让上层重新进入循环）
-                db_task = await db.fetch_one_task_safe(task_id=params.task_id)
-                if db_task is None:
-                    logger.info(f"[Worker-{params.worker_id}] 等待后仍无任务，结束本批")
-                    break
+                logger.info(f"[Worker-{params.worker_id}] 补词后仍无任务，结束本批")
+                break
 
             keyword_item = {
                 "id":   db_task["keyword_id"],
@@ -915,7 +897,7 @@ async def search_keyword_batch(params):
             }
             logger.info(f"[Worker-{params.worker_id}] 开始搜索: {keyword_item['name']}")
 
-            # ── 3-c. 搜索单词 ─────────────────────────────────────
+            # ── 3-b. 搜索单词 ─────────────────────────────────────
             success = await search_single_keyword(browser, keyword_item, params)
             processed += 1
 
@@ -924,7 +906,6 @@ async def search_keyword_batch(params):
                 success_count += 1
 
             elif success is None:
-                # 验证码 / 代理失败 → 标记失败，退出本批
                 await db.mark_failed(db_task["id"])
                 logger.warning(f"[Worker-{params.worker_id}] 验证码或代理失败，结束本批")
                 captcha_hit = True
@@ -934,7 +915,12 @@ async def search_keyword_batch(params):
                 await db.mark_failed(db_task["id"])
                 fail_count += 1
 
-        # ── 4. 汇报本批结果 ───────────────────────────────────────
+            # ── 3-c. 每取完一条都异步触发水线检查（不阻塞当前词的处理）
+            asyncio.create_task(
+                db.auto_refresh_if_needed(),
+                name=f"Worker-{params.worker_id}/refill",
+            )
+
         await db.print_stats()
         logger.info(
             f"[Worker-{params.worker_id}] 本批结束 — "
@@ -955,13 +941,43 @@ async def search_keyword_batch(params):
         raise
 
     finally:
-        # ── 5. 无论如何关闭浏览器 ─────────────────────────────────
         if browser:
             try:
                 await asyncio.wait_for(browser.close(), timeout=10.0)
                 logger.info(f"[Worker-{params.worker_id}] 浏览器已关闭")
             except Exception as e:
                 logger.error(f"[Worker-{params.worker_id}] 关闭浏览器失败: {e}")
+
+
+async def _fetch_task_with_refill(db, params, max_wait_rounds: int = 6) -> dict | None:
+    """
+    取一条任务。取不到时：
+      1. await auto_refresh_if_needed()，确保补词写入完成后再试
+      2. 每轮等 10s，最多等 max_wait_rounds 轮
+      3. 仍然没有则返回 None
+    """
+    db_task = await db.fetch_one_task_safe(task_id=params.task_id)
+    if db_task:
+        return db_task
+
+    logger.info(f"[Worker-{params.worker_id}] SQLite 暂无任务，触发补词...")
+
+    for round_i in range(1, max_wait_rounds + 1):
+        # 用 await 而非 create_task，确保补词完成后再取
+        await db.auto_refresh_if_needed()
+
+        db_task = await db.fetch_one_task_safe(task_id=params.task_id)
+        if db_task:
+            logger.info(f"[Worker-{params.worker_id}] 补词后取到任务（第 {round_i} 轮）")
+            return db_task
+
+        logger.info(
+            f"[Worker-{params.worker_id}] 补词后仍无任务，等待 10s "
+            f"({round_i}/{max_wait_rounds})"
+        )
+        await asyncio.sleep(10)
+
+    return None
 
 async def load_tasks_into_db(db: DbManager, raw_tasks: list, task_id: int):
     """
