@@ -645,8 +645,12 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                     else:
                         keyword_item["query_result"] = {"err_msg": "谷歌收录小于4"}
 
-                html_content = await page.content()
-                is_jp = contains_japanese_kana(html_content)
+                title = keyword_item.get("domain_title")
+                is_jp = contains_japanese_kana(title)
+
+                if not is_jp:
+                    html_content = await page.content()
+                    is_jp = contains_japanese_kana(html_content)
 
                 if not is_jp:
                     await go_to_page(page, 5)

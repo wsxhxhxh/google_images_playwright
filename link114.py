@@ -100,10 +100,13 @@ async def get_link_114_info(domains):
     for i in range(len(domains_list) * 2):
         await asyncio.sleep(1)
 
-    await page.close()
-    await context.close()
-    await browse.close()
-    await pw.stop()
+    try:
+        await page.close()
+        await context.close()
+        await browse.close()
+        await pw.stop()
+    except:
+        pass
 
 
     return res_data
