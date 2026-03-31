@@ -30,12 +30,12 @@ def create_response_handler(data):
             data[site]["moz_da"] = jjjj["result"]["da"]
             data[site]["moz_pa"] = jjjj["result"]["pa"]
         elif params["func"] == "ip":
-            data[site]["ip"] = jjjj["result"]["data"]
+            data[site]["ip"] = jjjj["result"].get("data")
             data[site]["location"] = jjjj["result"].get("location")
         elif params["func"] == "title":
-            data[site]["title"] = jjjj["result"]["title"]
-            data[site]["keywords"] = jjjj["result"]["keywords"]
-            data[site]["description"] = jjjj["result"]["description"]
+            data[site]["title"] = jjjj["result"].get("title")
+            data[site]["keywords"] = jjjj["result"].get("keywords")
+            data[site]["description"] = jjjj["result"].get("description")
 
     return handle_response
 
