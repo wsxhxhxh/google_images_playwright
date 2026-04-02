@@ -15,6 +15,7 @@ from parsel_json_str import demo_with_real_data, get_related_search, get_related
 from platform_api import send_items_to_api, send_shopify_product_to_api, send_err_task, fetch_tasks_from_api, update_task_status
 from managed import ManagedPage, ThreadSafeAggregator
 from dblocal import DbManager
+from shopify_client import get_and_send_shopify_products
 
 
 async def block_images(route):
@@ -830,12 +831,23 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                         'products': json.dumps(products)
                     }
 
-                    if products or shopify_products:
-                        async with aiohttp.ClientSession() as session:
-                            if products:
-                                await send_items_to_api(params, google_item)
-                            if shopify_products:
-                                await send_shopify_product_to_api(session, params, shopify_products)
+                    await get_and_send_shopify_products(google_item['domains'], params)
+
+
+
+
+
+
+
+
+                    # todo
+                    # if products or shopify_products:
+                    #     async with aiohttp.ClientSession() as session:
+                    #         if products:
+                    #             await send_items_to_api(params, google_item)
+                    #         if shopify_products:
+                    #             await send_shopify_product_to_api(session, params, shopify_products)
+
 
                     logger.info(f"[{keyword}] 数据处理完成")
                 else:
@@ -960,7 +972,6 @@ async def search_keyword_batch(params):
     finally:
         # ⭐ 用 _safe_close_browser，CancelledError 不会阻止浏览器关闭
         await _safe_close_browser(browser, params.worker_id)
-
 
 async def _fetch_task_with_refill(db, params, max_wait_rounds: int = 6) -> dict | None:
     """

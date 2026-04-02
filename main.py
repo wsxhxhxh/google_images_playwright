@@ -106,9 +106,12 @@ async def fetch_and_load_keywords(atm: AsyncTokenManager, db: DbManager):
             records = []
             for item_str in raw_tasks:
                 try:
-                    item = json.loads(item_str)
+                    if type(item_str) == str:
+                        item = json.loads(item_str)
+                    else:
+                        item = item_str
                     records.append({
-                        "keyword":    item["name"],
+                        "keyword":    item["keyword"],
                         "keyword_id": item["id"],
                         "task_id":    task_info.get("id"),
                     })
@@ -168,14 +171,14 @@ async def worker(worker_id: int, stop_event: asyncio.Event, db: DbManager,
                 language_code=Config.LANGUAGE_CODE_MAP.get(
                     task_info.get("language_code"), "en-US"
                 ),
-                usenum=task_info.get("product_count"),
+                usenum=20,
                 desimagenum=task_info.get("image_count"),
                 languageid=task_info.get("language_id"),
                 no_keyword_num=0,
                 jxycategory_id=task_info.get("category_id"),
                 task_id=task_info.get("id"),
                 proxies=None,
-                collect_platform_type=task_info.get("collect_platform_type"),
+                collect_platform_type=["shopify"],
                 session=session,
                 app=app,
                 atm=atm,

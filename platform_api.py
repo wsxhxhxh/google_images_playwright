@@ -119,12 +119,12 @@ class AsyncProxyPool:
 
 async def get_task_info(atm, session):
     """获取任务信息"""
-    token = await atm.get_token()
-    url = "https://seosystem.top/prod/api/v1/tasks?platform_id=1&token=" + token
-    headers = {"Authorization": "Bearer " + token}
+    # token = await atm.get_token()
+    url = "https://yingxiao.softwared.top/open/collect/task/list"
     for attempt in range(10):
         try:
-            async with session.get(url, headers=headers,timeout=aiohttp.ClientTimeout(total=10), ssl=False) as resp:
+            async with session.get(url,timeout=aiohttp.ClientTimeout(total=10), ssl=False) as resp:
+                print(await resp.text())
                 if resp.status == 200:
                     data = json.loads(await resp.text())
                     res = data["data"]
@@ -138,14 +138,16 @@ async def get_task_info(atm, session):
 
     raise Exception("获取任务信息失败，已重试10次")
 
+
 async def fetch_tasks_from_api(params):
     """从 API 获取关键词列表"""
     try:
-        api_url = f"{params.agent_url}?action=getwordsV1&d={params.dbname}&db_user={params.dbuser}&db_pass={params.dbpasswd}&secret_key={params.agent_key}&datanum={params.datanum}"
+        api_url = f"https://yingxiao.softwared.top/open/collect/task/keywords?taskId={params.task_id}"
 
         logger.info(f"获取关键词: {api_url}")
 
         async with params.session.get(api_url, timeout=aiohttp.ClientTimeout(total=10), ssl=False) as resp:
+            print(await resp.text())
             if resp.status == 200:
                 task_data = json.loads(await resp.text())
                 tasks = task_data.get('data', [])
@@ -257,6 +259,18 @@ async def main():
     async with aiohttp.ClientSession() as session:
         info = await get_task_info(atm, session)
         print(info)
+
+
+async def send_shopify_product_products_to_api(product, params):
+    url = 'https://yingxiao.softwared.top/open/shopify/product/import'
+    data = {
+        "products": product,
+    }
+    async with params.session.post(url, json=data, ssl=False) as resp:
+        data_logger.info(f"[{params.worker_id}] send shopify product to api: [{product['groupId']}][{product['id']}]")
+        await resp.text()
+
+
 
 if __name__ == '__main__':
     # app = AsyncProxyPool()
