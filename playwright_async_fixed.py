@@ -4,6 +4,7 @@ import time
 import datetime
 import asyncio
 import aiofiles
+import urllib
 
 from playwright.async_api import async_playwright, Page, TimeoutError as PlaywrightTimeout
 from playwright._impl._errors import Error as PlaywrightError
@@ -812,15 +813,19 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                         'products': json.dumps(products)
                     }
                     logger.info(f"shopify domains num {len(json.loads(google_item['domains']))}")
+                    shopify_domains = []
+                    for ss in shopify_products:
+                        link = ss["link"]
+                        plib = urllib.parse.urlparse(link)
 
-                    shopify_domains = [ss["domain"] for ss in shopify_products]
+                        shopify_domains.append(f"{plib.scheme}://{plib.netloc}{plib.path}.json")
 
                     domain_groups = []
                     for i in range(0, len(shopify_domains), 4):
                         sds = shopify_domains[i:i + 4]
                         group_id = int(time.time() * 100000) + i + random.randint(100, 999)
                         for sd in sds:
-                            domain_groups.append({"url":sd, "groupId": group_id})
+                            domain_groups.append({"url":sd, "groupId": group_id, "keyword": keyword})
 
                     await send_shopify_domain_to_api(domain_groups, params)
 
