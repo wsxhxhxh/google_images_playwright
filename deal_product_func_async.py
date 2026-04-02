@@ -230,7 +230,7 @@ async def deal_shopify_product_info_async(params, products):
             if ptype == "shopify":
                 d = {}
                 plib = urllib.parse.urlparse(purl)
-                d["domain"] = f"{plib.scheme}://{plib.netloc}"
+                d["domain"] = f"{plib.scheme}://{plib.netloc}{plib.path}"
                 d["jxycategory_id"] = params.jxycategory_id
                 d["language_id"] = params.languageid
                 d["status"] = 1
