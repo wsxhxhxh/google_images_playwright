@@ -1,5 +1,6 @@
 import json
 import random
+import time
 import datetime
 import asyncio
 import aiofiles
@@ -12,8 +13,9 @@ from deal_product_func_async import deal_info_by_async, deal_shopify_product_inf
 from parsel_json_str import demo_with_real_data, get_related_search, get_related_items
 from managed import ManagedPage, ThreadSafeAggregator
 from dblocal import DbManager
-from shopify_client import get_and_send_shopify_products
 from managed import create_child_task
+from platform_api import send_shopify_domain_to_api
+
 
 async def block_images(route):
     url = route.request.url.lower()
@@ -813,23 +815,14 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
 
                     shopify_domains = [ss["domain"] for ss in shopify_products]
 
-                    await get_and_send_shopify_products(shopify_domains, params)
+                    domain_groups = []
+                    for i in range(0, len(shopify_domains), 4):
+                        sds = shopify_domains[i:i + 4]
+                        group_id = int(time.time() * 100000) + i + random.randint(100, 999)
+                        for sd in sds:
+                            domain_groups.append({"url":sd, "groupId": group_id})
 
-
-
-
-
-
-
-
-                    # todo
-                    # if products or shopify_products:
-                    #     async with aiohttp.ClientSession() as session:
-                    #         if products:
-                    #             await send_items_to_api(params, google_item)
-                    #         if shopify_products:
-                    #             await send_shopify_product_to_api(session, params, shopify_products)
-
+                    await send_shopify_domain_to_api(domain_groups, params)
 
                     logger.info(f"[{keyword}] 数据处理完成")
                 else:
