@@ -52,36 +52,32 @@ class ShopifyClient:
             backoff_factor: float = 2.0,
             **kwargs
     ) -> Dict[str, Any]:
-        """发起异步 HTTP 请求（含手动重试）"""
         url = f"{self.base_url}{endpoint}"
         session = await self._get_session()
 
-        for attempt in range(retries + 1):
+        attempt = 0
+        while attempt <= retries:
             try:
                 logger.debug(f"[Attempt {attempt + 1}] {method} {url}")
 
                 async with session.request(method, url, **kwargs) as response:
-                    # 检查速率限制头
                     if 'X-Shopify-Shop-Api-Call-Limit' in response.headers:
                         logger.debug(f"API call limit: {response.headers['X-Shopify-Shop-Api-Call-Limit']}")
 
-                    # 429 单独处理：等待 Retry-After 再重试
+                    # 429 不消耗重试次数，无限等待直到解除限流
                     if response.status == 429:
-                        retry_after = int(response.headers.get('Retry-After', 5))
+                        retry_after = int(response.headers.get('Retry-After', 10))
                         logger.warning(f"Rate limited. Retrying after {retry_after}s")
                         await asyncio.sleep(retry_after)
+                        continue  # 不 attempt += 1
+
+                    if response.status >= 500:
+                        wait = backoff_factor ** attempt
+                        logger.warning(f"Server error {response.status}, retrying in {wait}s")
+                        await asyncio.sleep(wait)
+                        attempt += 1
                         continue
 
-                    # 5xx 按退避重试
-                    if response.status >= 500:
-                        if attempt < retries:
-                            wait = backoff_factor ** attempt
-                            logger.warning(f"Server error {response.status}, retrying in {wait}s")
-                            await asyncio.sleep(wait)
-                            continue
-                        raise RetryableException(f"Server error {response.status}: {url}")
-
-                    # 其他 4xx 直接抛出
                     if response.status >= 400:
                         logger.error(f"HTTP error {response.status}: {url}")
                         raise ShopifyAPIException(f"HTTP {response.status}: {url}")
@@ -89,18 +85,18 @@ class ShopifyClient:
                     return await response.json()
 
             except (aiohttp.ServerTimeoutError, asyncio.TimeoutError):
-                if attempt < retries:
-                    wait = backoff_factor ** attempt
-                    logger.warning(f"Timeout, retrying in {wait}s")
-                    await asyncio.sleep(wait)
-                    continue
-                raise RetryableException(f"Request timeout: {url}")
+                wait = backoff_factor ** attempt
+                logger.warning(f"Timeout, retrying in {wait}s")
+                await asyncio.sleep(wait)
+                attempt += 1
+                continue
 
             except aiohttp.ClientConnectionError as e:
                 if attempt < retries:
                     wait = backoff_factor ** attempt
                     logger.warning(f"Connection error, retrying in {wait}s: {e}")
                     await asyncio.sleep(wait)
+                    attempt += 1
                     continue
                 raise RetryableException(f"Connection error: {str(e)}")
 
@@ -132,7 +128,7 @@ class ShopifyClient:
             self,
             limit: int = 250,
             start_page: int = 1,
-            delay: float = 1.0,
+            delay: float = 3.0,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         自动翻页异步生成器，逐个 yield 产品
@@ -263,6 +259,7 @@ async def get_and_send_shopify_products(domains: List | str, params) -> bool:
             for domain in group["domains"]
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.sleep(2)
 
         all_products = []
         for domain, result in zip(group["domains"], results):
