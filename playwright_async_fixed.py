@@ -820,7 +820,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                         sds = shopify_domains[i:i + 4]
                         group_id = int(time.time() * 100000) + i + random.randint(100, 999)
                         for sd in sds:
-                            domain_groups.append({"url":sd, "groupId": group_id})
+                            domain_groups.append({"url":sd, "groupId": group_id, "keyword": keyword})
 
                     await send_shopify_domain_to_api(domain_groups, params)
 
