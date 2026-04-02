@@ -237,11 +237,12 @@ async def fetch_shopify_products(shopify_domain: str, group_id) -> List[Dict[str
     return products
 
 async def get_and_send_shopify_products(domains: List | str, params) -> bool:
-    background_tasks = []
     if type(domains) == str:
         domains = json.loads(domains)
 
-    # 分成每组4个域名
+    # 每个域名一把锁，保证同一域名同时只有一个请求
+    domain_locks: Dict[str, asyncio.Lock] = {domain: asyncio.Lock() for domain in domains}
+
     domain_groups = []
     for i in range(0, len(domains), 4):
         domain_groups.append({
@@ -249,16 +250,20 @@ async def get_and_send_shopify_products(domains: List | str, params) -> bool:
             "domains": domains[i:i + 4]
         })
 
+    async def fetch_with_lock(domain: str, group_id) -> List[Dict[str, Any]]:
+        async with domain_locks[domain]:  # 同一域名排队等待
+            return await fetch_shopify_products(domain, group_id)
+
+    background_tasks = []
     for group in domain_groups:
         special_logger.info(f"[{params.worker_id}] group id: {group['group_id']} domains: {group['domains']}")
-        # 并发抓取整组所有域名的产品
+
         tasks = [
-            fetch_shopify_products(domain, group["group_id"])
+            fetch_with_lock(domain, group["group_id"])
             for domain in group["domains"]
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # 合并整组产品，跳过失败的任务
         all_products = []
         for domain, result in zip(group["domains"], results):
             if isinstance(result, Exception):
@@ -268,14 +273,10 @@ async def get_and_send_shopify_products(domains: List | str, params) -> bool:
 
         logger.info(f"Group {group['group_id']}: collected {len(all_products)} products")
 
-        # 按50个一批写入
-        # batches = [all_products[i:i + 50] for i in range(0, len(all_products), 50)]
-        # for batch in batches:
-        #     await send_shopify_product_products_to_api(batch, params)  # 你的写入函数占位
-
         for product in all_products:
             task = create_child_task(send_shopify_product_products_to_api(product, params))
             background_tasks.append(task)
 
     await asyncio.gather(*background_tasks, return_exceptions=True)
     return True
+
