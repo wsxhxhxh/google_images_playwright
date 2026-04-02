@@ -37,7 +37,7 @@ class ShopifyClient:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(
                 headers={
-                    'User-Agent': 'Apifox/1.0.0 (https://apifox.com)',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
                     'Accept': 'application/json',
                 },
                 timeout=self.timeout,
