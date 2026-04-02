@@ -271,10 +271,10 @@ async def send_shopify_product_products_to_api(product, params):
         await resp.text()
 
 async def send_shopify_domain_to_api(domains, params):
-    url = 'https://yingxiao.softwared.top/open/shopify/product/import'
+    url = 'https://yingxiao.softwared.top/open/shopify/collect-task/batch'
     async with params.session.post(url, json=domains, ssl=False) as resp:
         data_logger.info(f"[{params.worker_id}] send shopify domain to api: [{len(domains)}]")
-        await resp.text()
+        logger.info(await resp.text())
 
 if __name__ == '__main__':
     # app = AsyncProxyPool()
