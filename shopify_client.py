@@ -4,7 +4,7 @@ import asyncio
 import aiohttp
 import time
 from typing import Dict, Any, Optional, List, AsyncGenerator
-from config import logger
+from config import logger, special_logger
 from managed import create_child_task
 from platform_api import send_shopify_product_products_to_api
 
@@ -250,6 +250,7 @@ async def get_and_send_shopify_products(domains: List | str, params) -> bool:
         })
 
     for group in domain_groups:
+        special_logger.info(f"[{params.worker_id}] group id: {group['group_id']} domains: {group['domains']}")
         # 并发抓取整组所有域名的产品
         tasks = [
             fetch_shopify_products(domain, group["group_id"])

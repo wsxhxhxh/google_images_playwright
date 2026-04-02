@@ -809,8 +809,9 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                         'items': json.dumps(unique_related_items),
                         'products': json.dumps(products)
                     }
+                    logger.info(f"shopify domains num {len(unique_domains)}")
 
-                    await get_and_send_shopify_products(google_item['domains'], params)
+                    await get_and_send_shopify_products(unique_domains, params)
 
 
 
