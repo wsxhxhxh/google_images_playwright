@@ -3,6 +3,22 @@ import asyncio
 from config import logger
 
 
+def create_child_task(coro, *, name=None, suffix=None):
+    parent = asyncio.current_task()
+
+    if parent:
+        parent_name = parent.get_name()
+    else:
+        parent_name = "Main"
+
+    if name:
+        task_name = name
+    elif suffix:
+        task_name = f"{parent_name}/{suffix}"
+    else:
+        task_name = parent_name
+
+    return asyncio.create_task(coro, name=task_name)
 
 
 class ManagedPage:

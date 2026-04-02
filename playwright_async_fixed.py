@@ -4,19 +4,16 @@ import datetime
 import asyncio
 import aiofiles
 
-import aiohttp
-from playwright.async_api import async_playwright, BrowserContext, Page, TimeoutError as PlaywrightTimeout
+from playwright.async_api import async_playwright, Page, TimeoutError as PlaywrightTimeout
 from playwright._impl._errors import Error as PlaywrightError
-from typing import Optional
 
 from config import Config, logger, special_logger
 from deal_product_func_async import deal_info_by_async, deal_shopify_product_info_async
 from parsel_json_str import demo_with_real_data, get_related_search, get_related_items
-from platform_api import send_items_to_api, send_shopify_product_to_api, send_err_task, fetch_tasks_from_api, update_task_status
 from managed import ManagedPage, ThreadSafeAggregator
 from dblocal import DbManager
 from shopify_client import get_and_send_shopify_products
-
+from managed import create_child_task
 
 async def block_images(route):
     url = route.request.url.lower()
@@ -26,24 +23,6 @@ async def block_images(route):
         await route.abort()
     else:
         await route.continue_()
-
-
-def create_child_task(coro, *, name=None, suffix=None):
-    parent = asyncio.current_task()
-
-    if parent:
-        parent_name = parent.get_name()
-    else:
-        parent_name = "Main"
-
-    if name:
-        task_name = name
-    elif suffix:
-        task_name = f"{parent_name}/{suffix}"
-    else:
-        task_name = parent_name
-
-    return asyncio.create_task(coro, name=task_name)
 
 
 async def save_text(path: str, content: str, mode: str = "w"):

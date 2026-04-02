@@ -5,7 +5,7 @@ import aiohttp
 import time
 from typing import Dict, Any, Optional, List, AsyncGenerator
 from config import logger
-from playwright_async_fixed import create_child_task
+from managed import create_child_task
 from platform_api import send_shopify_product_products_to_api
 
 
