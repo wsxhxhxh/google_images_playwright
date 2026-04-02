@@ -813,7 +813,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                     }
                     logger.info(f"shopify domains num {len(json.loads(google_item['domains']))}")
 
-                    shopify_domains = [ss["link"] for ss in shopify_products]
+                    shopify_domains = [ss["domain"] for ss in shopify_products]
 
                     domain_groups = []
                     for i in range(0, len(shopify_domains), 4):
