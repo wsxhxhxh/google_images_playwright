@@ -171,7 +171,7 @@ async def worker(worker_id: int, stop_event: asyncio.Event, db: DbManager,
                     task_info.get("language_code"), "en-US"
                 ),
                 usenum=20,
-                desimagenum=task_info.get("image_count"),
+                desimagenum=20,
                 languageid=task_info.get("language_id"),
                 no_keyword_num=0,
                 jxycategory_id=task_info.get("category_id"),
