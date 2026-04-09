@@ -1,10 +1,14 @@
+import os
+import json
 import asyncio
 import aiohttp
 from aiohttp_socks import ProxyConnector
+from dotenv import load_dotenv
 
+load_dotenv()
 
-async def test_proxy():
-    proxy_url = "socks5://158.62.210.138:1080"
+async def test_proxy(proxy_url):
+    # proxy_url = "socks5://158.62.210.138:1080"
 
     connector = ProxyConnector.from_url(proxy_url)
 
@@ -34,8 +38,21 @@ async def test_no_proxy():
             print("no proxy error:", e)
 
 
+async def get_proxy(PROXY_URL):
+    timeout = aiohttp.ClientTimeout(total=5)
+
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.get(PROXY_URL) as resp:
+            text = json.loads(await resp.text())
+            return text
+
+
+
 async def main():
-    await test_proxy()
+    PROXY_URL: str = os.getenv("PROXY_URL", "")
+    proxy_list = await get_proxy(PROXY_URL)
+    for ppp in proxy_list:
+        await test_proxy(f"socks5://{ppp['ip']}:1080")
     await test_no_proxy()
 
 
