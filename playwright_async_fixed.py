@@ -618,6 +618,10 @@ async def human_type_and_submit(page, keyword_item, timeout=10000):
         """)
 
         await page.keyboard.press("Enter")
+
+        await page.wait_for_selector("div.mXwfNd", timeout=timeout)
+        await page.page.locator("div.mXwfNd").click()
+
         await page.wait_for_timeout(random.randint(100, 200))
 
     except PlaywrightTimeout as e:
@@ -711,7 +715,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                 try:
                     task = create_child_task(
                         page.goto(
-                            f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl",
+                            f"https://www.google.com",
                             wait_until="domcontentloaded",
                             timeout=30000
                         )
@@ -721,6 +725,7 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
                     # ⭐ 添加：自动处理 Cookie 弹窗
                     await asyncio.sleep(0.5)  # 等待页面稳定
                     await handle_cookie_consent(page, timeout=3000)
+
                 except (PlaywrightError, asyncio.TimeoutError) as e:
                     error_msg = str(e)
 
@@ -1031,3 +1036,49 @@ async def load_tasks_into_db(db: DbManager, raw_tasks: list, task_id: int):
     if records:
         await db.refresh_tasks(records)
         logger.info(f"[DB] 写入 {len(records)} 条任务到 SQLite")
+
+async def test_single_keywords():
+    test_keywords = [
+        {"id": 1, "name": "nike shoes"},
+        {"id": 2, "name": "summer dress women"},
+        {"id": 3, "name": "coffee mug aesthetic"},
+    ]
+
+    class DummyParams:
+        def __init__(self):
+            self.language_code = "en-US"
+            self.worker_id = 1
+            self.task_id = 999
+            self.datanum = 10
+            self.proxies = None
+
+            # mock app（避免报错）
+            class DummyApp:
+                async def set_fail(self, *args, **kwargs): pass
+                async def set_success(self, *args, **kwargs): pass
+
+            self.app = DummyApp()
+
+    params = DummyParams()
+
+    browser = PlaywrightBrowser(
+        chrome_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        language_code=params.language_code,
+        proxies=None,   # ⭐ 测试先不用代理
+        headless=False,
+    )
+
+    await browser.initialize()
+
+    try:
+        for kw in test_keywords:
+            print(f"测试关键词: {kw['name']}")
+            await search_single_keyword(browser, kw, params)
+            await asyncio.sleep(3)  # 防止太快被风控
+
+    finally:
+        await browser.close()
+
+
+if __name__ == '__main__':
+    asyncio.run(test_single_keywords())
