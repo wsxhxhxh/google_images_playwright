@@ -6,7 +6,7 @@ from typing import Dict, List
 
 import aiohttp
 
-from playwright_async_fixed import search_keyword_batch
+from browser_ruyipage import search_keyword_batch
 from config import logger, Config
 from platform_api import (AsyncTokenManager, AsyncProxyPool, get_task_info, fetch_tasks_from_api, update_task_status)
 from dblocal import DbManager
