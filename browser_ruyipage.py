@@ -209,32 +209,18 @@ class RuyiPageBrowser:
     # ── 响应捕获 ──────────────────────────────────────────────
 
     def listen_and_collect(self, keyword_item: dict, params) -> list[dict]:
-        """
-        开启 ruyiPage 数据包监听，执行搜索 + 滚动，收集所有命中的响应体，
-        解析后返回聚合数据列表。
-
-        ruyiPage 通过 page.listen.start() / page.listen.fetch() 实现响应监听，
-        这是同步的数据包拦截机制，与 Playwright 的 page.on('response') 等价。
-
-        Returns:
-            解析后的商品数据列表
-        """
         self._require_page()
         keyword = keyword_item["name"]
-        keyid   = keyword_item["id"]
+        keyid = keyword_item["id"]
 
-        aggregated = ThreadSafeAggregator()   # 仍用聚合器做去重
-
-        # ── 1. 开启监听（监听包含 google.com/search 的响应）─────
+        # ── 1. 开启监听 ──────────────────────────────────────────
         self.page.listen.start("google.com/search")
         logger.info(f"[RuyiPageBrowser] 开始监听响应，关键词: {keyword}")
 
+        packets = []
         try:
             # ── 2. 打开谷歌图片首页 ───────────────────────────────
-            logger.info(f"[RuyiPageBrowser] 打开谷歌图片首页")
-            self.goto(
-                f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl"
-            )
+            self.goto(f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl")
             random_sleep(0.5, 1.0)
             self.handle_cookie_consent(timeout=3.0)
 
@@ -242,67 +228,68 @@ class RuyiPageBrowser:
             current_url = self.page.url
             if "/sorry/" in current_url or "sorry" in current_url:
                 logger.warning(f"[RuyiPageBrowser] 检测到验证页面: {current_url}")
-                return None  # 代理/验证码失败信号
+                return None
 
             # ── 4. 输入关键词并提交 ───────────────────────────────
             self.human_type_and_submit(keyword_item)
-
-            # 再次检测验证码
             random_sleep(0.8, 1.2)
+
             current_url = self.page.url
             if "/sorry/" in current_url or "sorry" in current_url:
                 logger.warning(f"[RuyiPageBrowser] 搜索后检测到验证页面: {current_url}")
                 return None
 
-            # ── 5. 滚动触发懒加载 ─────────────────────────────────
+            # ── 5. 用 wait() 收取第一批请求（页面加载期间触发的包）──
+            #    wait(count=1, timeout=15) 表示：最多等 15s，至少收到 1 个包就返回
+            #    返回值是单个 packet（不是列表），需要循环调用直到超时
+            logger.info(f"[RuyiPageBrowser] 等待初始数据包...")
+            self._collect_packets(packets, timeout=15)
+
+            # ── 6. 滚动触发懒加载，继续收包 ──────────────────────
             logger.info(f"[RuyiPageBrowser] 开始滚动页面")
             self.human_scroll_to_bottom()
+            self._collect_packets(packets, timeout=10)
 
-            # ── 6. 收取所有监听到的数据包 ─────────────────────────
-            logger.info(f"[RuyiPageBrowser] 收取数据包...")
-            packets = self.page.listen.fetch(count=0, timeout=15)  # count=0 表示取全部
+            logger.info(f"[RuyiPageBrowser] 共收到 {len(packets)} 个数据包")
 
         finally:
-            # 无论成功失败都停止监听
             self.page.listen.stop()
 
-        # ── 7. 解析数据包 ─────────────────────────────────────────
-        new_datas      = []
+        # ── 7. 解析数据包（逻辑不变）─────────────────────────────
+        new_datas = []
         related_search = []
-        related_items  = []
+        related_items = []
 
-        # 子线程里没有运行中的事件循环，需要创建独立的 loop 来调用 async 解析函数
         sub_loop = asyncio.new_event_loop()
         try:
-            for packet in (packets or []):
+            for packet in packets:
                 try:
                     body = packet.response.body
                     if not body:
                         continue
-
-                    result        = sub_loop.run_until_complete(demo_with_real_data(body))
-                    rs            = sub_loop.run_until_complete(get_related_search(body))
-                    ri            = sub_loop.run_until_complete(get_related_items(body))
+                    result = sub_loop.run_until_complete(demo_with_real_data(body))
+                    rs = sub_loop.run_until_complete(get_related_search(body))
+                    ri = sub_loop.run_until_complete(get_related_items(body))
 
                     for item in result:
                         if item.get("site", ".jp").endswith(".jp"):
                             continue
                         new_datas.append({
-                            "index":     item.get("id"),
-                            "word":      item.get("title"),
-                            "domain":    item.get("site"),
-                            "link":      item.get("url"),
-                            "image":     item.get("image"),
+                            "index": item.get("id"),
+                            "word": item.get("title"),
+                            "domain": item.get("site"),
+                            "link": item.get("url"),
+                            "image": item.get("image"),
                             "info": {
-                                "desc":     item.get("desc"),
-                                "brand":    item.get("brand"),
-                                "price":    item.get("price"),
+                                "desc": item.get("desc"),
+                                "brand": item.get("brand"),
+                                "price": item.get("price"),
                                 "currency": item.get("currency"),
-                                "score":    item.get("score"),
-                                "review":   item.get("review"),
+                                "score": item.get("score"),
+                                "review": item.get("review"),
                             },
-                            "parent":    keyid,
-                            "stat":      -1,
+                            "parent": keyid,
+                            "stat": -1,
                             "createdAt": str(datetime.datetime.now(datetime.timezone.utc)),
                         })
 
@@ -317,11 +304,35 @@ class RuyiPageBrowser:
 
         logger.info(f"[RuyiPageBrowser] 解析完成，共 {len(new_datas)} 条数据")
         return {
-            "new_datas":      new_datas,
-            "domains":        list({d["domain"] for d in new_datas if d.get("domain")}),
+            "new_datas": new_datas,
+            "domains": list({d["domain"] for d in new_datas if d.get("domain")}),
             "related_search": list(set(related_search)),
-            "related_items":  list(set(related_items)),
+            "related_items": list(set(related_items)),
         }
+
+    def _collect_packets(self, packets: list, timeout: float = 15):
+        """
+        循环调用 page.listen.wait() 收取所有当前可用的数据包，直到超时为止。
+
+        ruyiPage 的 wait() 签名：
+            wait(count=1, timeout=秒) -> DataPacket | None
+        每次返回一个包或 None（超时/无包）。
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            try:
+                # 每次等待最多 3s，拿到一个包就存起来继续循环
+                packet = self.page.listen.wait(count=1, timeout=min(3.0, remaining))
+                if packet is None:
+                    # 连续无包，说明当前没有新请求了，提前退出
+                    break
+                packets.append(packet)
+            except Exception as e:
+                logger.debug(f"[RuyiPageBrowser] wait() 异常: {e}")
+                break
 
     # ── 关闭 ──────────────────────────────────────────────────
 
