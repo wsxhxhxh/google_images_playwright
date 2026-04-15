@@ -17,6 +17,7 @@ import time
 import random
 import datetime
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 import aiohttp
 import aiofiles
@@ -25,6 +26,8 @@ import aiofiles
 if sys.platform == "win32":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
+
+sys.path.insert(0, r"C:\Users\XXX\Desktop\mypy\ruyipage")
 
 from ruyipage import FirefoxPage, FirefoxOptions, Keys
 
@@ -268,47 +271,49 @@ class RuyiPageBrowser:
         related_search = []
         related_items  = []
 
-        for packet in (packets or []):
-            try:
-                body = packet.response.body
-                if not body:
-                    continue
-
-                # demo_with_real_data 是同步函数；若原来是 async 请在此处用 asyncio.run
-                result = asyncio.get_event_loop().run_until_complete(
-                    demo_with_real_data(body)
-                )
-
-                for item in result:
-                    if item.get("site", ".jp").endswith(".jp"):
+        # 子线程里没有运行中的事件循环，需要创建独立的 loop 来调用 async 解析函数
+        sub_loop = asyncio.new_event_loop()
+        try:
+            for packet in (packets or []):
+                try:
+                    body = packet.response.body
+                    if not body:
                         continue
-                    new_datas.append({
-                        "index":     item.get("id"),
-                        "word":      item.get("title"),
-                        "domain":    item.get("site"),
-                        "link":      item.get("url"),
-                        "image":     item.get("image"),
-                        "info": {
-                            "desc":     item.get("desc"),
-                            "brand":    item.get("brand"),
-                            "price":    item.get("price"),
-                            "currency": item.get("currency"),
-                            "score":    item.get("score"),
-                            "review":   item.get("review"),
-                        },
-                        "parent":    keyid,
-                        "stat":      -1,
-                        "createdAt": str(datetime.datetime.now(datetime.timezone.utc)),
-                    })
 
-                rs = asyncio.get_event_loop().run_until_complete(get_related_search(body))
-                ri = asyncio.get_event_loop().run_until_complete(get_related_items(body))
-                related_search.extend(rs or [])
-                related_items.extend(ri or [])
+                    result        = sub_loop.run_until_complete(demo_with_real_data(body))
+                    rs            = sub_loop.run_until_complete(get_related_search(body))
+                    ri            = sub_loop.run_until_complete(get_related_items(body))
 
-            except Exception as e:
-                logger.warning(f"[RuyiPageBrowser] 解析数据包失败: {e}")
-                continue
+                    for item in result:
+                        if item.get("site", ".jp").endswith(".jp"):
+                            continue
+                        new_datas.append({
+                            "index":     item.get("id"),
+                            "word":      item.get("title"),
+                            "domain":    item.get("site"),
+                            "link":      item.get("url"),
+                            "image":     item.get("image"),
+                            "info": {
+                                "desc":     item.get("desc"),
+                                "brand":    item.get("brand"),
+                                "price":    item.get("price"),
+                                "currency": item.get("currency"),
+                                "score":    item.get("score"),
+                                "review":   item.get("review"),
+                            },
+                            "parent":    keyid,
+                            "stat":      -1,
+                            "createdAt": str(datetime.datetime.now(datetime.timezone.utc)),
+                        })
+
+                    related_search.extend(rs or [])
+                    related_items.extend(ri or [])
+
+                except Exception as e:
+                    logger.warning(f"[RuyiPageBrowser] 解析数据包失败: {e}")
+                    continue
+        finally:
+            sub_loop.close()
 
         logger.info(f"[RuyiPageBrowser] 解析完成，共 {len(new_datas)} 条数据")
         return {
@@ -342,13 +347,14 @@ class RuyiPageBrowser:
 # 单关键词搜索
 # ──────────────────────────────────────────────────────────────
 
-async def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, params, max_retries: int = 2):
+async def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, params,
+                               run_in_browser_thread, max_retries: int = 2):
     """
     搜索单个关键词。
 
-    ruyiPage 本身是同步的，因此浏览器操作在同步块中执行；
-    网络 I/O（发送数据到 API）仍走 asyncio。
-
+    Args:
+        run_in_browser_thread: 由 search_keyword_batch 传入的专属单线程提交函数，
+                               保证所有浏览器操作始终在同一个固定线程里执行。
     Returns:
         True  — 成功
         False — 失败（已重试完）
@@ -361,11 +367,8 @@ async def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, pa
         try:
             logger.info(f"[{keyword}] 开始搜索 (尝试 {attempt + 1}/{max_retries})")
 
-            # ── 同步：浏览器操作 + 数据包解析 ────────────────────
-            # 在线程池里跑同步代码，不阻塞事件循环
-            loop = asyncio.get_event_loop()
-            aggregated_data = await loop.run_in_executor(
-                None,
+            # ── 同步：浏览器操作 + 数据包解析（在专属线程里执行）──
+            aggregated_data = await run_in_browser_thread(
                 browser.listen_and_collect,
                 keyword_item,
                 params,
@@ -435,37 +438,49 @@ async def search_keyword_batch(params):
     """
     批量搜索关键词。
     每次调用从 SQLite 最多取 datanum 条任务，在同一个浏览器里跑完后关闭。
+
+    关键设计：
+        ruyiPage 的 Firefox 驱动是线程绑定的（内部用 ThreadLocal 管理），
+        initialize() / listen_and_collect() / close() 必须在【同一个线程】里执行。
+        这里用 ThreadPoolExecutor(max_workers=1) 创建一个专属单线程执行器，
+        所有浏览器操作都 submit 到这个执行器，确保始终跑在同一线程上。
     """
     db: DbManager = params.db
-    browser: RuyiPageBrowser | None = None
+    loop = asyncio.get_event_loop()
+
+    # ── 1. 获取代理 ───────────────────────────────────────────────
+    while True:
+        proxy = await params.app.get_random_proxy()
+        if proxy:
+            params.proxies = proxy
+            break
+        logger.info(f"[Worker-{params.worker_id}] 暂无可用代理，等待 30s")
+        await asyncio.sleep(30)
+
+    # ── 2. 创建专属单线程执行器 ────────────────────────────────────
+    # max_workers=1 保证所有任务都跑在同一个固定线程里
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"ruyi-worker-{params.worker_id}")
+
+    def run_in_browser_thread(fn, *args):
+        """把同步函数提交到专属线程，返回 Future，再用 asyncio 等待。"""
+        return loop.run_in_executor(executor, fn, *args)
+
+    browser = RuyiPageBrowser(
+        language_code=params.language_code,
+        proxies=params.proxies,
+        headless=False,
+        # firefox_path=r"D:\Firefox\firefox.exe",  # 非默认路径时取消注释
+    )
 
     try:
-        # ── 1. 获取代理 ───────────────────────────────────────────
-        while True:
-            proxy = await params.app.get_random_proxy()
-            if proxy:
-                params.proxies = proxy
-                break
-            logger.info(f"[Worker-{params.worker_id}] 暂无可用代理，等待 30s")
-            await asyncio.sleep(30)
-
-        # ── 2. 启动浏览器（同步，在线程池中执行）─────────────────
-        browser = RuyiPageBrowser(
-            language_code=params.language_code,
-            proxies=params.proxies,
-            headless=False,
-            # firefox_path=r"D:\Firefox\firefox.exe",  # 非默认路径时取消注释
-        )
-
-        loop = asyncio.get_event_loop()
+        # ── 3. 在专属线程里初始化浏览器 ───────────────────────────
         logger.info(f"[Worker-{params.worker_id}] 初始化浏览器，代理: {params.proxies['server']}")
-
         await asyncio.wait_for(
-            loop.run_in_executor(None, browser.initialize),
+            run_in_browser_thread(browser.initialize),
             timeout=30.0,
         )
 
-        # ── 3. 逐词处理 ───────────────────────────────────────────
+        # ── 4. 逐词处理 ───────────────────────────────────────────
         success_count = 0
         fail_count    = 0
         captcha_hit   = False
@@ -473,7 +488,7 @@ async def search_keyword_batch(params):
 
         while processed < params.datanum:
 
-            # 3-a. 取任务
+            # 4-a. 取任务
             db_task = await _fetch_task_with_refill(db, params)
             if db_task is None:
                 logger.info(f"[Worker-{params.worker_id}] 补词后仍无任务，结束本批")
@@ -485,8 +500,8 @@ async def search_keyword_batch(params):
             }
             logger.info(f"[Worker-{params.worker_id}] 开始搜索: {keyword_item['name']}")
 
-            # 3-b. 搜索单词
-            success = await search_single_keyword(browser, keyword_item, params)
+            # 4-b. 搜索单词（把专属执行器透传进去）
+            success = await search_single_keyword(browser, keyword_item, params, run_in_browser_thread)
             processed += 1
 
             if success is True:
@@ -501,7 +516,7 @@ async def search_keyword_batch(params):
                 await db.mark_failed(db_task["id"])
                 fail_count += 1
 
-            # 3-c. 异步触发水线检查
+            # 4-c. 异步触发水线检查
             asyncio.create_task(
                 db.auto_refresh_if_needed(),
                 name=f"Worker-{params.worker_id}/refill",
@@ -527,9 +542,17 @@ async def search_keyword_batch(params):
         raise
 
     finally:
-        if browser:
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, browser.close)
+        # 关浏览器也必须在同一个专属线程里执行
+        try:
+            await asyncio.wait_for(
+                run_in_browser_thread(browser.close),
+                timeout=10.0,
+            )
+        except Exception as e:
+            logger.warning(f"[Worker-{params.worker_id}] 关闭浏览器失败: {e}")
+        finally:
+            # 关闭执行器，释放线程资源
+            executor.shutdown(wait=False)
 
 
 # ──────────────────────────────────────────────────────────────
