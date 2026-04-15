@@ -5,16 +5,14 @@ import asyncio
 import aiofiles
 
 import aiohttp
-from playwright.async_api import async_playwright, BrowserContext, Page, TimeoutError as PlaywrightTimeout
+from playwright.async_api import async_playwright, Page, TimeoutError as PlaywrightTimeout
 from playwright._impl._errors import Error as PlaywrightError
-from typing import Optional
 
 from config import Config, logger, special_logger
 from deal_product_func_async import deal_info_by_async, deal_shopify_product_info_async
 from parsel_json_str import demo_with_real_data, get_related_search, get_related_items
 from platform_api import send_items_to_api, send_shopify_product_to_api, send_err_task, fetch_tasks_from_api, update_task_status
 from managed import ManagedPage, ThreadSafeAggregator
-from dblocal import DbManager
 
 
 async def block_images(route):
@@ -863,84 +861,324 @@ async def search_single_keyword(browser, keyword_item, params, max_retries=2):
     return False
 
 
+
+MAX_EMPTY_FETCH_COUNT = 20
+
+
+def _get_runtime_current_task_info():
+    import sys
+    for mod_name in ("main", "__main__"):
+        mod = sys.modules.get(mod_name)
+        if mod and hasattr(mod, "_current_task_info"):
+            return getattr(mod, "_current_task_info")
+    return None
+
+
+async def parse_raw_keywords(raw_tasks: list) -> list[dict]:
+    records = []
+    for item_str in raw_tasks or []:
+        try:
+            item = json.loads(item_str)
+            keyword = item.get("name")
+            keyword_id = item.get("id")
+            if not keyword or keyword_id is None:
+                continue
+
+            records.append({
+                "keyword": keyword,
+                "keyword_id": keyword_id,
+            })
+        except (json.JSONDecodeError, TypeError, KeyError) as e:
+            logger.warning(f"[parse_raw_keywords] 解析失败，跳过: {item_str!r} - {e}")
+    return records
+
+
+def apply_task_payload_to_params(params, task_info: dict):
+    payload = task_info.get("task_payload") or {}
+    params.task_id = task_info["task_id"]
+    params.language_code = task_info["language_code"]
+    params.agent_url = payload.get("agent_url")
+    params.agent_key = payload.get("agent_key")
+    params.dbuser = payload.get("product_db_user")
+    params.dbpasswd = payload.get("product_db_password")
+    params.dbname = payload.get("product_db_name")
+    params.binddomain = payload.get("server_main_domain")
+    params.usenum = payload.get("product_count")
+    params.desimagenum = payload.get("image_count")
+    params.languageid = payload.get("language_id")
+    params.jxycategory_id = payload.get("category_id")
+    params.collect_platform_type = payload.get("collect_platform_type") or []
+    params.datanum = payload.get("keyword_count", params.datanum)
+
+
+async def fetch_keywords_into_db_for_task(db, task_info: dict, params) -> bool:
+    task_id = task_info["task_id"]
+    keyword_table = task_info["keyword_table"]
+    payload = task_info.get("task_payload") or {}
+
+    class _FakeParams:
+        pass
+
+    fake = _FakeParams()
+    fake.session = params.session
+    fake.atm = params.atm
+    fake.task_id = task_id
+    fake.dbname = payload.get("product_db_name")
+    fake.datanum = payload.get("keyword_count", params.datanum or 50)
+    fake.binddomain = payload.get("server_main_domain")
+    fake.agent_url = payload.get("agent_url")
+    fake.agent_key = payload.get("agent_key")
+    fake.dbuser = payload.get("product_db_user")
+    fake.dbpasswd = payload.get("product_db_password")
+    fake.usenum = payload.get("product_count")
+    fake.desimagenum = payload.get("image_count")
+    fake.languageid = payload.get("language_id")
+    fake.language_code = task_info["language_code"]
+    fake.jxycategory_id = payload.get("category_id")
+    fake.collect_platform_type = payload.get("collect_platform_type") or []
+
+    try:
+        raw_tasks = await fetch_tasks_from_api(fake)
+    except Exception as e:
+        logger.error(f"[task-{task_id}] fetch_tasks_from_api 异常: {e}")
+        return False
+
+    if not raw_tasks:
+        logger.info(f"[task-{task_id}] 远端未返回关键词")
+        return False
+
+    records = await parse_raw_keywords(raw_tasks)
+    if not records:
+        logger.info(f"[task-{task_id}] 远端返回了数据，但解析后没有有效关键词")
+        return False
+
+    await db.refresh_keywords(keyword_table, records)
+    logger.info(f"[task-{task_id}] 写入 {len(records)} 条关键词到 {keyword_table}")
+    return True
+
+
+async def get_new_remote_task_info(db, params):
+    if not db.fetch_func:
+        logger.error("[get_new_remote_task_info] db.fetch_func 未注入")
+        return None
+
+    try:
+        await db.fetch_func()
+    except Exception as e:
+        logger.error(f"[get_new_remote_task_info] 拉取 task_info 异常: {e}")
+        return None
+
+    runtime_task = _get_runtime_current_task_info()
+    if not runtime_task:
+        logger.info("[get_new_remote_task_info] 当前没有拿到新的 task")
+        return None
+
+    task_id = runtime_task.get("id")
+    if not task_id:
+        logger.warning(f"[get_new_remote_task_info] task_info 缺少 id: {runtime_task}")
+        return None
+
+    language_code = runtime_task.get("_normalized_language_code") or runtime_task.get("language_code") or "en-US"
+
+    task_info = await db.upsert_task_meta(
+        task_id=task_id,
+        language_code=language_code,
+        task_payload=runtime_task,
+    )
+    await db.update_task_meta_status(task_id, TASK_RUNNING)
+
+    logger.info(
+        f"[get_new_remote_task_info] 获取新 task 成功: "
+        f"task_id={task_id}, language_code={language_code}, table={task_info['keyword_table']}"
+    )
+    return task_info
+
+
+async def get_or_create_active_task(db, params):
+    task_info = await db.get_unfinished_task()
+    if task_info:
+        if task_info["task_status"] != TASK_RUNNING:
+            await db.update_task_meta_status(task_info["task_id"], TASK_RUNNING)
+            task_info["task_status"] = TASK_RUNNING
+        return task_info
+
+    return await get_new_remote_task_info(db, params)
+
+
+async def finish_task_locally_and_remotely(db, params, task_info: dict):
+    task_id = task_info["task_id"]
+
+    try:
+        await update_task_status(params.atm, params.session, task_id)
+        logger.info(f"[task-{task_id}] 远端 task 状态已更新为完成")
+    except Exception as e:
+        logger.error(f"[task-{task_id}] update_task_status 异常: {e}")
+
+    await db.update_task_meta_status(task_id, TASK_SUCCESS)
+    logger.info(f"[task-{task_id}] 本地 task_meta 已标记为完成")
+
+
+async def fetch_keyword_from_task_loop(db, params, current_task):
+    need_reset_browser = False
+
+    while True:
+        if current_task is None:
+            current_task = await get_or_create_active_task(db, params)
+            if current_task is None:
+                return None, None, False
+            need_reset_browser = True
+
+        task_id = current_task["task_id"]
+        keyword_table = current_task["keyword_table"]
+
+        keyword_row = await db.fetch_one_keyword_safe(keyword_table)
+        if keyword_row:
+            return keyword_row, current_task, need_reset_browser
+
+        got_keywords = await fetch_keywords_into_db_for_task(db, current_task, params)
+        if got_keywords:
+            await db.reset_empty_fetch_count(task_id)
+            keyword_row = await db.fetch_one_keyword_safe(keyword_table)
+            if keyword_row:
+                return keyword_row, current_task, need_reset_browser
+
+            logger.warning(f"[task-{task_id}] 刚写入关键词后仍未取到词，继续重试")
+            await asyncio.sleep(1)
+            continue
+
+        empty_count = await db.increase_empty_fetch_count(task_id)
+        logger.info(f"[task-{task_id}] 连续取不到关键词次数: {empty_count}/{MAX_EMPTY_FETCH_COUNT}")
+
+        if empty_count >= MAX_EMPTY_FETCH_COUNT:
+            await finish_task_locally_and_remotely(db, params, current_task)
+            old_task_id = current_task["task_id"]
+            current_task = await get_new_remote_task_info(db, params)
+            if current_task is None:
+                return None, None, False
+
+            need_reset_browser = (current_task["task_id"] != old_task_id)
+            continue
+
+        await asyncio.sleep(1.5)
+
+
+async def ensure_browser_for_task(browser, params, task_info):
+    should_rebuild = False
+
+    if browser is None:
+        should_rebuild = True
+    else:
+        browser_task_id = getattr(browser, "_task_id", None)
+        browser_lang = getattr(browser, "_language_code", None)
+        if browser_task_id != task_info["task_id"] or browser_lang != task_info["language_code"]:
+            should_rebuild = True
+
+    if not should_rebuild:
+        return browser
+
+    if browser is not None:
+        await _safe_close_browser(browser, params.worker_id)
+        browser = None
+
+    while True:
+        proxy = await params.app.get_random_proxy()
+        if proxy:
+            params.proxies = proxy
+            break
+        logger.info(f"[Worker-{params.worker_id}] 暂无可用代理，等待 30s")
+        await asyncio.sleep(30)
+
+    browser = PlaywrightBrowser(
+        chrome_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        language_code=task_info["language_code"],
+        proxies=params.proxies,
+        headless=False,
+    )
+    logger.info(
+        f"[Worker-{params.worker_id}] 初始化浏览器: "
+        f"task_id={task_info['task_id']}, "
+        f"language_code={task_info['language_code']}, "
+        f"proxy={params.proxies['server']}"
+    )
+    await asyncio.wait_for(create_child_task(browser.initialize()), timeout=30.0)
+    browser._task_id = task_info["task_id"]
+    browser._language_code = task_info["language_code"]
+    return browser
+
+
 async def search_keyword_batch(params):
     """
-    批量搜索关键词。
-    每次调用从 SQLite 最多取 datanum 条任务，在同一个浏览器里跑完后关闭。
+    新版批处理逻辑：
+    1. 先从 task_meta 取未完成任务
+    2. 去该 task 的独立表取关键词
+    3. 本地表没有，就调 fetch_tasks_from_api 先写库再取
+    4. 同一个 task 连续 20 次都从接口取不到关键词 -> 远端、本地都标为完成
+    5. 再切到新 task
+    6. 只有 task 切换时才重建浏览器
     """
     db = params.db
     browser = None
+    current_task = None
+
+    processed = 0
+    success_count = 0
+    fail_count = 0
+    captcha_hit = False
 
     try:
-        # ── 1. 获取代理 ───────────────────────────────────────────
-        while True:
-            proxy = await params.app.get_random_proxy()
-            if proxy:
-                params.proxies = proxy
-                break
-            logger.info(f"[Worker-{params.worker_id}] 暂无可用代理，等待 30s")
-            await asyncio.sleep(30)
-
-        # ── 2. 启动浏览器 ──────────────────────────────────────────
-        browser = PlaywrightBrowser(
-            chrome_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            language_code=params.language_code,
-            proxies=params.proxies,
-            headless=False,
-        )
-        logger.info(f"[Worker-{params.worker_id}] 初始化浏览器，代理: {params.proxies['server']}")
-        await asyncio.wait_for(
-            create_child_task(browser.initialize()),
-            timeout=30.0,
-        )
-
-        # ── 3. 逐词处理（最多 datanum 条）────────────────────────
-        success_count = 0
-        fail_count    = 0
-        captcha_hit   = False
-        processed     = 0
-
         while processed < params.datanum:
+            keyword_row, task_info, need_reset_browser = await fetch_keyword_from_task_loop(
+                db=db,
+                params=params,
+                current_task=current_task,
+            )
 
-            # ── 3-a. 取任务（取不到则触发补词并等待）────────────────
-            db_task = await _fetch_task_with_refill(db, params)
-            if db_task is None:
-                logger.info(f"[Worker-{params.worker_id}] 补词后仍无任务，结束本批")
+            if task_info is None:
+                logger.info(f"[Worker-{params.worker_id}] 当前没有可处理 task，结束本批")
                 break
+
+            current_task = task_info
+            apply_task_payload_to_params(params, current_task)
+
+            if need_reset_browser:
+                browser = await ensure_browser_for_task(browser, params, current_task)
+
+            if keyword_row is None:
+                continue
 
             keyword_item = {
-                "id":   db_task["keyword_id"],
-                "name": db_task["keyword"],
+                "id": keyword_row["keyword_id"],
+                "name": keyword_row["keyword"],
             }
-            logger.info(f"[Worker-{params.worker_id}] 开始搜索: {keyword_item['name']}")
 
-            # ── 3-b. 搜索单词 ─────────────────────────────────────
+            logger.info(
+                f"[Worker-{params.worker_id}] 开始搜索: "
+                f"task_id={current_task['task_id']}, keyword={keyword_item['name']}"
+            )
+
             success = await search_single_keyword(browser, keyword_item, params)
             processed += 1
 
             if success is True:
-                await db.mark_success(db_task["id"])
+                await db.mark_keyword_success(current_task["keyword_table"], keyword_row["id"])
                 success_count += 1
+                await db.reset_empty_fetch_count(current_task["task_id"])
 
             elif success is None:
-                await db.mark_failed(db_task["id"])
-                logger.warning(f"[Worker-{params.worker_id}] 验证码或代理失败，结束本批")
+                await db.mark_keyword_failed(current_task["keyword_table"], keyword_row["id"])
                 captcha_hit = True
+                logger.warning(
+                    f"[Worker-{params.worker_id}] 验证码或代理失败，结束本批 "
+                    f"(task_id={current_task['task_id']}, keyword={keyword_item['name']})"
+                )
                 break
-
             else:
-                await db.mark_failed(db_task["id"])
+                await db.mark_keyword_failed(current_task["keyword_table"], keyword_row["id"])
                 fail_count += 1
 
-            # ── 3-c. 每取完一条都异步触发水线检查（不阻塞当前词的处理）
-            asyncio.create_task(
-                db.auto_refresh_if_needed(),
-                name=f"Worker-{params.worker_id}/refill",
-            )
-
-        await db.print_stats()
+        await db.print_task_meta_stats()
         logger.info(
-            f"[Worker-{params.worker_id}] 本批结束 — "
+            f"[Worker-{params.worker_id}] 本批结束 - "
             f"处理: {processed}, 成功: {success_count}, 失败: {fail_count}"
             + (" [验证码/代理中断]" if captcha_hit else "")
         )
@@ -948,86 +1186,11 @@ async def search_keyword_batch(params):
     except asyncio.CancelledError:
         logger.info(f"[Worker-{params.worker_id}] search_keyword_batch 被取消")
         raise
-
     except asyncio.TimeoutError:
         logger.error(f"[Worker-{params.worker_id}] 浏览器初始化超时")
         raise
-
     except Exception as e:
         logger.exception(f"[Worker-{params.worker_id}] 批量搜索异常: {e}")
         raise
-
     finally:
-        # ⭐ 用 _safe_close_browser，CancelledError 不会阻止浏览器关闭
         await _safe_close_browser(browser, params.worker_id)
-
-
-async def _fetch_task_with_refill(db, params, max_wait_rounds: int = 6) -> dict | None:
-    """
-    取一条任务。取不到时：
-      1. await auto_refresh_if_needed()，确保补词写入完成后再试
-      2. 每轮等 10s，最多等 max_wait_rounds 轮
-      3. 仍然没有则返回 None
-    """
-
-
-    db_task = await db.fetch_one_task_safe(task_id=params.task_id)
-    if db_task:
-        return db_task
-
-    logger.info(f"[Worker-{params.worker_id}] SQLite 暂无任务，触发补词...")
-
-    for round_i in range(1, max_wait_rounds + 1):
-        # ⭐ 直接调 fetch_func，跳过水线判断，强制去平台拉新 task_info + 新关键词
-        if db.fetch_func:
-            try:
-                await db.fetch_func()
-            except Exception as e:
-                logger.error(f"[Worker-{params.worker_id}] 补词异常: {e}")
-
-        from main import _current_task_info
-        if _current_task_info and _current_task_info.get("id") != params.task_id:
-            logger.info(
-                f"[Worker-{params.worker_id}] task_id 更新: "
-                f"{params.task_id} -> {_current_task_info.get('id')}"
-            )
-            params.task_id = _current_task_info.get("id")
-
-        db_task = await db.fetch_one_task_safe(task_id=params.task_id)
-        if db_task:
-            logger.info(f"[Worker-{params.worker_id}] 补词后取到任务（第 {round_i} 轮）")
-            return db_task
-
-        logger.info(
-            f"[Worker-{params.worker_id}] 补词后仍无任务，等待 10s "
-            f"({round_i}/{max_wait_rounds})"
-        )
-        await asyncio.sleep(10)
-
-    return None
-
-async def load_tasks_into_db(db: DbManager, raw_tasks: list, task_id: int):
-    """
-    将 fetch_tasks_from_api 返回的 JSON 字符串列表写入 SQLite。
-
-    raw_tasks 格式:
-        ['{"id":4846,"name":"jam geek bar pulse x"}', '{"id":3005,"name":"..."}']
-
-    写入格式:
-        {"keyword": "jam geek bar pulse x", "keyword_id": 4846, "task_id": <task_id>}
-    """
-    records = []
-    for item_str in raw_tasks:
-        try:
-            item = json.loads(item_str)
-            records.append({
-                "keyword": item["name"],
-                "keyword_id": item["id"],
-                "task_id": task_id,
-            })
-        except (json.JSONDecodeError, KeyError) as e:
-            logger.warning(f"解析任务条目失败，跳过: {item_str!r} — {e}")
-
-    if records:
-        await db.refresh_tasks(records)
-        logger.info(f"[DB] 写入 {len(records)} 条任务到 SQLite")
