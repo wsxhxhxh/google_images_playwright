@@ -219,26 +219,6 @@ class RuyiPageBrowser:
 
     # ── 响应捕获 ──────────────────────────────────────────────
 
-    def _get_body_via_cdp(self, request_id: str) -> str:
-        """
-        直接通过 CDP Network.getResponseBody 获取响应体，
-        绕过 ruyiPage collector 的解压封装。
-        """
-        try:
-            result = self.page.run_cdp(
-                "Network.getResponseBody",
-                {"requestId": request_id}
-            )
-            # result: {"body": "...", "base64Encoded": True/False}
-            body = result.get("body", "")
-            if result.get("base64Encoded", False):
-                import base64
-                body = base64.b64decode(body).decode("utf-8", errors="ignore")
-            return body
-        except Exception as e:
-            logger.warning(f"[RuyiPageBrowser] CDP getResponseBody 失败: {e}")
-            return ""
-
     def listen_and_collect(self, keyword_item: dict, params) -> list[dict]:
         self._require_page()
         keyword = keyword_item["name"]
@@ -293,9 +273,43 @@ class RuyiPageBrowser:
                     logger.debug("[RuyiPageBrowser] packet 无 request_id，跳过")
                     continue
 
-                body_text = self._get_body_via_cdp(request_id)
+                # ── FIX 1: wrap collector.get() to catch Firefox decompression errors ──
+                try:
+                    data = collector.get(request_id, data_type="response")
+                except Exception as e:
+                    logger.warning(f"[RuyiPageBrowser] collector.get() 失败 (Firefox 解压错误): {e}")
+                    continue
+
+                if not data or not data.has_data:
+                    logger.debug(f"[RuyiPageBrowser] collector 无数据, url={packet.url[:80]}")
+                    continue
+
+                # ── FIX 2: guard against bytes returning a dict like {'size': 0} ──
+                try:
+                    body_bytes = data.bytes
+                except Exception as e:
+                    logger.warning(f"[RuyiPageBrowser] data.bytes 访问失败: {e}")
+                    continue
+
+                if not isinstance(body_bytes, (bytes, bytearray)):
+                    # Collector returned metadata dict instead of actual bytes
+                    logger.warning(
+                        f"[RuyiPageBrowser] data.bytes 返回非字节类型: "
+                        f"{type(body_bytes)} = {repr(body_bytes)[:120]}，跳过"
+                    )
+                    continue
+
+                if len(body_bytes) == 0:
+                    logger.debug(f"[RuyiPageBrowser] 响应体为空, url={packet.url[:80]}")
+                    continue
+
+                # ── FIX 3: pass packet.headers for correct decompression ──
+                headers = getattr(packet, "headers", {}) or {}
+                if not headers and isinstance(packet.response, dict):
+                    headers = packet.response.get("headers", {}) or {}
+
+                body_text = self._decompress_and_decode(body_bytes, packet)
                 if not body_text:
-                    logger.debug(f"[RuyiPageBrowser] CDP 取不到响应体, url={packet.url[:80]}")
                     continue
 
                 result = demo_with_real_data(body_text)
