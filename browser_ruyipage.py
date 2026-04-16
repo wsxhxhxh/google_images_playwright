@@ -360,6 +360,13 @@ class RuyiPageBrowser:
         """
         从 ruyiPage 数据包中提取 body，兼容对象/字典两种结构。
         """
+
+        response = getattr(packet, "response", None)
+        if isinstance(response, dict):
+            content = response.get("content")
+            if content:
+                return content
+
         body = getattr(packet, "body", None)
         if body:
             return body
@@ -453,6 +460,11 @@ class RuyiPageBrowser:
         logger.info(f"=== PACKET TYPE: {type(packet)} ===")
         logger.info(f"PACKET.url = {getattr(packet, 'url', '<<NOT FOUND>>')}")
         logger.info(f"PACKET.body = {repr(getattr(packet, 'body', '<<NOT FOUND>>'))[:200]}")
+
+        response = getattr(packet, 'response', None)
+        if isinstance(response, dict):
+            content = response.get('content')
+            logger.info(f"RESPONSE content type: {type(content)}, value: {repr(content)[:300]}")
 
         # 如果是对象，打印所有属性
         if not isinstance(packet, dict):
