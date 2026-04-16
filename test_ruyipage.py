@@ -42,6 +42,14 @@ def _extract_response(packet):
     }
 
 
+def _packet_keys(packet):
+    if isinstance(packet, dict):
+        return list(packet.keys())
+    if hasattr(packet, "__dict__"):
+        return list(packet.__dict__.keys())
+    return []
+
+
 def main():
     browser = RuyiPageBrowser(
         language_code=LANGUAGE_CODE,
@@ -84,8 +92,13 @@ def main():
             status = resp.get("status", "")
             body_text = _to_text(resp.get("body"))
             preview = body_text[:220].replace("\n", " ").replace("\r", " ")
+            pkt_keys = _packet_keys(pkt)
+            resp_keys = list(resp.keys()) if isinstance(resp, dict) else []
             print(f"\n[PACKET-{idx}] status={status}")
             print(f"[PACKET-{idx}] url={url}")
+            print(f"[PACKET-{idx}] packet_keys={pkt_keys}")
+            print(f"[PACKET-{idx}] response_keys={resp_keys}")
+            print(f"[PACKET-{idx}] body_len={len(body_text)}")
             print(f"[PACKET-{idx}] body_preview={preview}")
 
     finally:

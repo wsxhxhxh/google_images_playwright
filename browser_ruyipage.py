@@ -239,7 +239,7 @@ class RuyiPageBrowser:
             # ── 2. 打开谷歌图片首页 ───────────────────────────────
             self.goto(f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl")
             random_sleep(0.5, 1.0)
-            self.handle_cookie_consent(timeout=3.0)
+            # self.handle_cookie_consent(timeout=3.0)
 
             # ── 3. 验证码检测 ─────────────────────────────────────
             current_url = self.page.url
@@ -281,7 +281,7 @@ class RuyiPageBrowser:
         try:
             for packet in packets:
                 try:
-                    body = packet.response.body
+                    body = self._extract_packet_body(packet)
                     if not body:
                         continue
 
@@ -327,11 +327,7 @@ class RuyiPageBrowser:
 
         if packets and not new_datas:
             sample = packets[0]
-            sample_url = ""
-            try:
-                sample_url = getattr(sample, "url", "") or getattr(sample.response, "url", "")
-            except Exception:
-                sample_url = ""
+            sample_url = self._extract_packet_url(sample)
             logger.warning(
                 "[RuyiPageBrowser] 收到响应包但未解析出商品数据，"
                 f"包数={len(packets)} sample_url={sample_url}"
@@ -369,6 +365,64 @@ class RuyiPageBrowser:
             return body.decode("utf-8", errors="ignore")
 
         return str(body)
+
+    def _extract_packet_body(self, packet):
+        """
+        从 ruyiPage 数据包中提取 body，兼容对象/字典两种结构。
+        """
+        candidate_keys = ("body", "text", "data", "content", "raw_body", "response_body")
+
+        def _pick_from_dict(d: dict):
+            for k in candidate_keys:
+                if k in d and d.get(k):
+                    return d.get(k)
+            return None
+
+        # 结构1: packet.response.body（对象）
+        response = getattr(packet, "response", None)
+        if response is not None:
+            # response 可能是 dict，也可能是对象
+            if isinstance(response, dict):
+                body = _pick_from_dict(response)
+                if body:
+                    return body
+            else:
+                for k in candidate_keys:
+                    value = getattr(response, k, None)
+                    if value:
+                        return value
+
+        # 结构2: packet 本身就是 dict
+        if isinstance(packet, dict):
+            body = _pick_from_dict(packet)
+            if body:
+                return body
+            resp = packet.get("response")
+            if isinstance(resp, dict):
+                body = _pick_from_dict(resp)
+                if body:
+                    return body
+
+        return None
+
+    def _extract_packet_url(self, packet) -> str:
+        """
+        从 ruyiPage 数据包中提取 url，兼容对象/字典两种结构。
+        """
+        response = getattr(packet, "response", None)
+        if response is not None:
+            if isinstance(response, dict):
+                return str(response.get("url", "") or "")
+            return str(getattr(response, "url", "") or "")
+
+        if isinstance(packet, dict):
+            if packet.get("url"):
+                return str(packet.get("url"))
+            resp = packet.get("response")
+            if isinstance(resp, dict):
+                return str(resp.get("url", "") or "")
+
+        return ""
 
     def _collect_packets(self, packets: list, timeout: float = 15):
         """
