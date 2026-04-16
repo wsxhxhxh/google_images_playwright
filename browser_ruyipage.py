@@ -424,6 +424,14 @@ class RuyiPageBrowser:
 
         return ""
 
+    def _is_target_search_url(self, url: str) -> bool:
+        """
+        只保留 Google 图片搜索结果相关请求，过滤静态资源和埋点请求。
+        """
+        if not url or "google.com/search" not in url:
+            return False
+        return any(token in url for token in ("udm=2", "tbm=isch", "async=", "asearch=arc"))
+
     def _collect_packets(self, packets: list, timeout: float = 15):
         """
         循环调用 page.listen.wait() 收取所有当前可用的数据包，直到超时为止。
@@ -443,7 +451,9 @@ class RuyiPageBrowser:
                 if packet is None:
                     # 连续无包，说明当前没有新请求了，提前退出
                     break
-                packets.append(packet)
+                url = self._extract_packet_url(packet)
+                if self._is_target_search_url(url):
+                    packets.append(packet)
             except Exception as e:
                 logger.debug(f"[RuyiPageBrowser] wait() 异常: {e}")
                 break
