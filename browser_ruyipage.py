@@ -467,6 +467,31 @@ class RuyiPageBrowser:
         if not self.page:
             raise RuntimeError("[RuyiPageBrowser] 浏览器未初始化，请先调用 initialize()")
 
+    def _debug_packet_structure(self, packet):
+        """临时调试：打印 packet 的完整结构"""
+        import inspect
+        logger.info(f"=== PACKET TYPE: {type(packet)} ===")
+
+        # 如果是对象，打印所有属性
+        if not isinstance(packet, dict):
+            attrs = [a for a in dir(packet) if not a.startswith('__')]
+            logger.info(f"PACKET ATTRS: {attrs}")
+
+            response = getattr(packet, 'response', None)
+            if response:
+                logger.info(f"RESPONSE TYPE: {type(response)}")
+                if not isinstance(response, dict):
+                    r_attrs = [a for a in dir(response) if not a.startswith('__')]
+                    logger.info(f"RESPONSE ATTRS: {r_attrs}")
+                    # 尝试常见属性
+                    for k in ('body', 'text', 'content', 'raw', 'url', 'status'):
+                        val = getattr(response, k, '<<NOT FOUND>>')
+                        logger.info(f"  response.{k} = {repr(val)[:200]}")
+                else:
+                    logger.info(f"RESPONSE DICT KEYS: {list(response.keys())}")
+        else:
+            logger.info(f"PACKET DICT KEYS: {list(packet.keys())}")
+
 
 # ──────────────────────────────────────────────────────────────
 # 单关键词搜索
