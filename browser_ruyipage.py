@@ -219,12 +219,31 @@ class RuyiPageBrowser:
 
     # ── 响应捕获 ──────────────────────────────────────────────
 
+    def _get_body_via_cdp(self, request_id: str) -> str:
+        """
+        直接通过 CDP Network.getResponseBody 获取响应体，
+        绕过 ruyiPage collector 的解压封装。
+        """
+        try:
+            result = self.page.run_cdp(
+                "Network.getResponseBody",
+                {"requestId": request_id}
+            )
+            # result: {"body": "...", "base64Encoded": True/False}
+            body = result.get("body", "")
+            if result.get("base64Encoded", False):
+                import base64
+                body = base64.b64decode(body).decode("utf-8", errors="ignore")
+            return body
+        except Exception as e:
+            logger.warning(f"[RuyiPageBrowser] CDP getResponseBody 失败: {e}")
+            return ""
+
     def listen_and_collect(self, keyword_item: dict, params) -> list[dict]:
         self._require_page()
         keyword = keyword_item["name"]
         keyid = keyword_item["id"]
 
-        # ── 1. 同时开启 DataCollector 和 listen ──────────────────
         collector = self.page.network.add_data_collector(
             ["responseCompleted"], data_types=["response"]
         )
@@ -261,29 +280,22 @@ class RuyiPageBrowser:
         finally:
             self.page.listen.stop()
 
-        # ── 2. 用 collector 取响应体 ─────────────────────────────
         new_datas = []
         related_search = []
         related_items = []
 
         for packet in packets:
+            request_id = None
             try:
-                # request_id 在 packet.request["request"] 里
-                request_id = packet.request.get("request")
+                request_id = packet.request.get("request") if isinstance(packet.request, dict) else getattr(
+                    packet.request, "request", None)
                 if not request_id:
                     logger.debug("[RuyiPageBrowser] packet 无 request_id，跳过")
                     continue
 
-                data = collector.get(request_id, data_type="response")
-                if not data or not data.has_data:
-                    logger.debug(f"[RuyiPageBrowser] collector 无数据, url={packet.url[:80]}")
-                    continue
-
-                body_bytes = data.bytes  # bytes 类型
-                collector.disown(request_id)  # 释放浏览器内存
-
-                body_text = self._decompress_and_decode(body_bytes, packet)
+                body_text = self._get_body_via_cdp(request_id)
                 if not body_text:
+                    logger.debug(f"[RuyiPageBrowser] CDP 取不到响应体, url={packet.url[:80]}")
                     continue
 
                 result = demo_with_real_data(body_text)
@@ -318,8 +330,14 @@ class RuyiPageBrowser:
             except Exception as e:
                 logger.warning(f"[RuyiPageBrowser] 解析数据包失败: {e}")
                 continue
+            finally:
+                # Always release browser memory even on error
+                if request_id:
+                    try:
+                        collector.disown(request_id)
+                    except Exception:
+                        pass
 
-        finally_cleanup = True
         try:
             collector.remove()
         except Exception as e:
