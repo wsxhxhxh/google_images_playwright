@@ -224,24 +224,23 @@ class RuyiPageBrowser:
         keyword = keyword_item["name"]
         keyid = keyword_item["id"]
 
-        # ── 1. 开启监听 ──────────────────────────────────────────
-        self.page.listen.start("google.com/search", res_type=True)
+        # ── 1. 同时开启 DataCollector 和 listen ──────────────────
+        collector = self.page.network.add_data_collector(
+            ["responseCompleted"], data_types=["response"]
+        )
+        self.page.listen.start("google.com/search")
         logger.info(f"[RuyiPageBrowser] 开始监听响应，关键词: {keyword}")
 
         packets = []
         try:
-            # ── 2. 打开谷歌图片首页 ───────────────────────────────
             self.goto(f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl")
             random_sleep(0.5, 1.0)
-            # self.handle_cookie_consent(timeout=3.0)
 
-            # ── 3. 验证码检测 ─────────────────────────────────────
             current_url = self.page.url
             if "/sorry/" in current_url or "sorry" in current_url:
                 logger.warning(f"[RuyiPageBrowser] 检测到验证页面: {current_url}")
                 return None
 
-            # ── 4. 输入关键词并提交 ───────────────────────────────
             self.human_type_and_submit(keyword_item)
             random_sleep(0.8, 1.2)
 
@@ -250,13 +249,9 @@ class RuyiPageBrowser:
                 logger.warning(f"[RuyiPageBrowser] 搜索后检测到验证页面: {current_url}")
                 return None
 
-            # ── 5. 用 wait() 收取第一批请求（页面加载期间触发的包）──
-            #    wait(count=1, timeout=15) 表示：最多等 15s，至少收到 1 个包就返回
-            #    返回值是单个 packet（不是列表），需要循环调用直到超时
             logger.info(f"[RuyiPageBrowser] 等待初始数据包...")
             self._collect_packets(packets, timeout=15)
 
-            # ── 6. 滚动触发懒加载，继续收包 ──────────────────────
             logger.info(f"[RuyiPageBrowser] 开始滚动页面")
             self.human_scroll_to_bottom()
             self._collect_packets(packets, timeout=10)
@@ -266,20 +261,29 @@ class RuyiPageBrowser:
         finally:
             self.page.listen.stop()
 
-        # ── 7. 解析数据包（逻辑不变）─────────────────────────────
+        # ── 2. 用 collector 取响应体 ─────────────────────────────
         new_datas = []
         related_search = []
         related_items = []
 
         for packet in packets:
             try:
-                body = self._extract_packet_body(packet)
-                if not body:
+                # request_id 在 packet.request["request"] 里
+                request_id = packet.request.get("request")
+                if not request_id:
+                    logger.debug("[RuyiPageBrowser] packet 无 request_id，跳过")
                     continue
 
-                body_text = self._normalize_response_body(body)
+                data = collector.get(request_id, data_type="response")
+                if not data or not data.has_data:
+                    logger.debug(f"[RuyiPageBrowser] collector 无数据, url={packet.url[:80]}")
+                    continue
+
+                body_bytes = data.bytes  # bytes 类型
+                collector.disown(request_id)  # 释放浏览器内存
+
+                body_text = self._normalize_response_body(body_bytes)
                 if not body_text:
-                    logger.debug("[RuyiPageBrowser] 响应体为空或无法解码，跳过")
                     continue
 
                 result = demo_with_real_data(body_text)
@@ -315,12 +319,15 @@ class RuyiPageBrowser:
                 logger.warning(f"[RuyiPageBrowser] 解析数据包失败: {e}")
                 continue
 
+        finally_cleanup = True
+        try:
+            collector.remove()
+        except Exception as e:
+            logger.warning(f"[RuyiPageBrowser] collector.remove() 失败: {e}")
+
         if packets and not new_datas:
-            sample = packets[0]
-            sample_url = self._extract_packet_url(sample)
             logger.warning(
-                "[RuyiPageBrowser] 收到响应包但未解析出商品数据，"
-                f"包数={len(packets)} sample_url={sample_url}"
+                f"[RuyiPageBrowser] 收到响应包但未解析出商品数据，包数={len(packets)}"
             )
 
         logger.info(f"[RuyiPageBrowser] 解析完成，共 {len(new_datas)} 条数据")
