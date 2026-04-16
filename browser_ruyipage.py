@@ -225,7 +225,7 @@ class RuyiPageBrowser:
         keyid = keyword_item["id"]
 
         # ── 1. 开启监听 ──────────────────────────────────────────
-        self.page.listen.start("google.com/search")
+        self.page.listen.start("google.com/search", res_type=True)
         logger.info(f"[RuyiPageBrowser] 开始监听响应，关键词: {keyword}")
 
         packets = []
@@ -361,15 +361,15 @@ class RuyiPageBrowser:
         从 ruyiPage 数据包中提取 body，兼容对象/字典两种结构。
         """
 
+        body = getattr(packet, "body", None)
+        if body:
+            return body
+
         response = getattr(packet, "response", None)
         if isinstance(response, dict):
             content = response.get("content")
             if content:
                 return content
-
-        body = getattr(packet, "body", None)
-        if body:
-            return body
 
         # 兜底：response["content"]
         response = getattr(packet, "response", None)
