@@ -26,11 +26,19 @@ file_handler = TimedRotatingFileHandler(
     backupCount=99
 )
 file_handler.setFormatter(formatter)
-file_handler.stream.reconfigure(encoding='utf-8')
+try:
+    if file_handler.stream and hasattr(file_handler.stream, "reconfigure"):
+        file_handler.stream.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 
 stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(formatter)
-stream_handler.stream.reconfigure(encoding='utf-8')
+try:
+    if stream_handler.stream and hasattr(stream_handler.stream, "reconfigure"):
+        stream_handler.stream.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 
 logger = logging.getLogger()
 logger.addFilter(TaskNameFilter())

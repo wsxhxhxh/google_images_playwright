@@ -17,6 +17,7 @@ import time
 import random
 import datetime
 import asyncio
+import gzip
 from concurrent.futures import ThreadPoolExecutor
 
 import aiohttp
@@ -24,8 +25,24 @@ import aiofiles
 
 # Windows 控制台 UTF-8 兼容
 if sys.platform == "win32":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
+    try:
+        if hasattr(sys.stdout, "buffer"):
+            sys.stdout = io.TextIOWrapper(
+                sys.stdout.buffer,
+                encoding="utf-8",
+                errors="replace",
+                line_buffering=True,
+            )
+        if hasattr(sys.stderr, "buffer"):
+            sys.stderr = io.TextIOWrapper(
+                sys.stderr.buffer,
+                encoding="utf-8",
+                errors="replace",
+                line_buffering=True,
+            )
+    except Exception:
+        # 某些终端/重定向场景不支持重包裹，忽略并使用默认流
+        pass
 
 sys.path.insert(0, r"C:\Users\XXX\Desktop\mypy\ruyipage")
 
@@ -267,9 +284,15 @@ class RuyiPageBrowser:
                     body = packet.response.body
                     if not body:
                         continue
-                    result = sub_loop.run_until_complete(demo_with_real_data(body))
-                    rs = sub_loop.run_until_complete(get_related_search(body))
-                    ri = sub_loop.run_until_complete(get_related_items(body))
+
+                    body_text = self._normalize_response_body(body)
+                    if not body_text:
+                        logger.debug("[RuyiPageBrowser] 响应体为空或无法解码，跳过")
+                        continue
+
+                    result = sub_loop.run_until_complete(demo_with_real_data(body_text))
+                    rs = sub_loop.run_until_complete(get_related_search(body_text))
+                    ri = sub_loop.run_until_complete(get_related_items(body_text))
 
                     for item in result:
                         if item.get("site", ".jp").endswith(".jp"):
@@ -302,6 +325,18 @@ class RuyiPageBrowser:
         finally:
             sub_loop.close()
 
+        if packets and not new_datas:
+            sample = packets[0]
+            sample_url = ""
+            try:
+                sample_url = getattr(sample, "url", "") or getattr(sample.response, "url", "")
+            except Exception:
+                sample_url = ""
+            logger.warning(
+                "[RuyiPageBrowser] 收到响应包但未解析出商品数据，"
+                f"包数={len(packets)} sample_url={sample_url}"
+            )
+
         logger.info(f"[RuyiPageBrowser] 解析完成，共 {len(new_datas)} 条数据")
         return {
             "new_datas": new_datas,
@@ -309,6 +344,31 @@ class RuyiPageBrowser:
             "related_search": list(set(related_search)),
             "related_items": list(set(related_items)),
         }
+
+    def _normalize_response_body(self, body) -> str:
+        """
+        把响应体统一转成 str，兼容 ruyiPage 返回 bytes 的场景。
+        """
+        if isinstance(body, str):
+            return body
+
+        if isinstance(body, bytes):
+            # 先尝试直接按 utf-8 解码（大多数 Google 响应可行）
+            try:
+                return body.decode("utf-8")
+            except UnicodeDecodeError:
+                pass
+
+            # 某些响应可能是 gzip 压缩
+            try:
+                return gzip.decompress(body).decode("utf-8", errors="ignore")
+            except Exception:
+                pass
+
+            # 最后兜底：宽松解码，尽量保留可解析内容
+            return body.decode("utf-8", errors="ignore")
+
+        return str(body)
 
     def _collect_packets(self, packets: list, timeout: float = 15):
         """
