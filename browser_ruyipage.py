@@ -373,6 +373,7 @@ async def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, pa
     """
     keyword = keyword_item["name"]
     keyid   = keyword_item["id"]
+    proxy_server = (params.proxies or {}).get("server", "")
 
     for attempt in range(max_retries):
         try:
@@ -403,8 +404,8 @@ async def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, pa
 
                 google_item = {
                     "id":           keyid,
-                    "use_proxy_ip": params.proxies.get("server"),
-                    "from":         params.proxies.get("server", "").replace("socks5://", "").split(":")[0],
+                    "use_proxy_ip": proxy_server,
+                    "from":         proxy_server.replace("socks5://", "").split(":")[0],
                     "word":         keyword,
                     "script":       "",
                     "domains":      json.dumps(aggregated_data["domains"]),
@@ -413,11 +414,12 @@ async def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, pa
                     "products":     json.dumps(products),
                 }
 
-                async with aiohttp.ClientSession() as session:
-                    if products:
-                        await send_items_to_api(params, google_item)
-                    if shopify_products:
-                        await send_shopify_product_to_api(session, params, shopify_products)
+                if products or shopify_products:
+                    async with aiohttp.ClientSession() as session:
+                        if products:
+                            await send_items_to_api(params, google_item)
+                        if shopify_products:
+                            await send_shopify_product_to_api(session, params, shopify_products)
 
                 logger.info(f"[{keyword}] 数据上报完成")
             else:
@@ -432,6 +434,24 @@ async def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, pa
 
         except Exception as e:
             logger.exception(f"[{keyword}] 搜索异常 (尝试 {attempt + 1}/{max_retries}): {e}")
+            error_msg = str(e)
+            if any(err in error_msg for err in [
+                "ERR_PROXY_CONNECTION_FAILED",
+                "ERR_TUNNEL_CONNECTION_FAILED",
+                "ERR_SOCKS_CONNECTION_FAILED",
+                "ERR_CONNECTION_REFUSED",
+                "ERR_CONNECTION_TIMED_OUT",
+                "net::ERR_",
+                "ProxyError",
+                "proxy",
+            ]):
+                special_logger.info(
+                    f"[work-{params.worker_id}][{params.task_id}][{keyword}] "
+                    f"{proxy_server or 'unknown_proxy'} ERR_PROXY_OR_NETWORK"
+                )
+                await params.app.set_fail(params.atm, params.proxies)
+                return None
+
             if attempt < max_retries - 1:
                 await asyncio.sleep(3)
             else:
