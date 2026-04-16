@@ -5,7 +5,9 @@ import time
 import threading
 import traceback
 from typing import Dict, Optional
-from urllib import error, parse, request
+from urllib import error
+
+import requests
 
 from config import logger, Config, data_logger
 
@@ -13,18 +15,72 @@ from config import logger, Config, data_logger
 _SSL_CONTEXT = ssl._create_unverified_context()
 
 
-def _request_text(method: str, url: str, *, headers=None, data=None, json_data=None, timeout: int = 10) -> str:
-    req_headers = dict(headers or {})
-    payload = data
-    if json_data is not None:
-        payload = json.dumps(json_data).encode("utf-8")
-        req_headers.setdefault("Content-Type", "application/json")
-    elif isinstance(data, dict):
-        payload = parse.urlencode(data).encode("utf-8")
+_TLS_VERIFY = False  # 等效原代码 ssl=False
+_TLS_TIMEOUT = 10
 
-    req = request.Request(url, data=payload, headers=req_headers, method=method.upper())
-    with request.urlopen(req, timeout=timeout, context=_SSL_CONTEXT) as resp:
-        return resp.read().decode("utf-8", errors="replace")
+
+_thread_local = threading.local()
+
+
+def _get_session() -> requests.Session:
+    sess = getattr(_thread_local, "session", None)
+    if sess is None:
+        sess = requests.Session()
+        _thread_local.session = sess
+    return sess
+
+
+def _request_text(
+    method: str,
+    url: str,
+    *,
+    headers=None,
+    data=None,
+    json_data=None,
+    timeout: int = _TLS_TIMEOUT,
+) -> str:
+    """
+    requests 统一封装：对 data 使用表单编码，对 json_data 使用 json=。
+    统一加 headers，解决部分接口对 User-Agent/Content-Type 敏感导致 403 的问题。
+    """
+    req_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+        "Accept": "*/*",
+        "Connection": "keep-alive",
+    }
+    if headers:
+        req_headers.update(headers)
+
+    sess = _get_session()
+    try:
+        if json_data is not None:
+            resp = sess.request(
+                method=method.upper(),
+                url=url,
+                headers=req_headers,
+                json=json_data,
+                timeout=timeout,
+                verify=_TLS_VERIFY,
+            )
+        else:
+            # data 走表单
+            resp = sess.request(
+                method=method.upper(),
+                url=url,
+                headers=req_headers,
+                data=data,
+                timeout=timeout,
+                verify=_TLS_VERIFY,
+            )
+        text = resp.text if resp.text is not None else ""
+        if resp.status_code >= 400:
+            snippet = text[:200].replace("\n", " ").replace("\r", " ")
+            logger.warning(f"[HTTP] {method.upper()} {url} -> {resp.status_code} resp_snippet={snippet!r}")
+            raise RuntimeError(f"HTTP {resp.status_code} Forbidden/Request failed for {url}: {snippet}")
+        return text
+    except requests.RequestException as exc:
+        # 兼容上层原逻辑：抛出异常交给调用方处理
+        raise
 
 
 class TokenManager:
@@ -64,7 +120,7 @@ class ProxyPool:
     def safe_request(self, method, url, **kwargs):
         try:
             return _request_text(method, url, **kwargs)
-        except error.URLError as exc:
+        except requests.RequestException as exc:
             logger.warning(f"request error: {exc}, retrying...")
             return _request_text(method, url, **kwargs)
 
