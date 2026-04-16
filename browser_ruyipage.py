@@ -16,12 +16,7 @@ import json
 import time
 import random
 import datetime
-import asyncio
 import gzip
-from concurrent.futures import ThreadPoolExecutor
-
-import aiohttp
-import aiofiles
 
 # Windows 控制台 UTF-8 兼容
 if sys.platform == "win32":
@@ -49,10 +44,9 @@ sys.path.insert(0, r"C:\Users\XXX\Desktop\mypy\ruyipage")
 from ruyipage import FirefoxPage, FirefoxOptions, Keys
 
 from config import Config, logger, special_logger
-from deal_product_func_async import deal_info_by_async, deal_shopify_product_info_async
+from deal_product_func_async import deal_info, deal_shopify_product_info
 from parsel_json_str import demo_with_real_data, get_related_search, get_related_items
 from platform_api import send_items_to_api, send_shopify_product_to_api
-from managed import ThreadSafeAggregator
 from dblocal import DbManager
 
 
@@ -277,53 +271,49 @@ class RuyiPageBrowser:
         related_search = []
         related_items = []
 
-        sub_loop = asyncio.new_event_loop()
-        try:
-            for packet in packets:
-                try:
-                    body = self._extract_packet_body(packet)
-                    if not body:
-                        continue
-
-                    body_text = self._normalize_response_body(body)
-                    if not body_text:
-                        logger.debug("[RuyiPageBrowser] 响应体为空或无法解码，跳过")
-                        continue
-
-                    result = sub_loop.run_until_complete(demo_with_real_data(body_text))
-                    rs = sub_loop.run_until_complete(get_related_search(body_text))
-                    ri = sub_loop.run_until_complete(get_related_items(body_text))
-
-                    for item in result:
-                        if item.get("site", ".jp").endswith(".jp"):
-                            continue
-                        new_datas.append({
-                            "index": item.get("id"),
-                            "word": item.get("title"),
-                            "domain": item.get("site"),
-                            "link": item.get("url"),
-                            "image": item.get("image"),
-                            "info": {
-                                "desc": item.get("desc"),
-                                "brand": item.get("brand"),
-                                "price": item.get("price"),
-                                "currency": item.get("currency"),
-                                "score": item.get("score"),
-                                "review": item.get("review"),
-                            },
-                            "parent": keyid,
-                            "stat": -1,
-                            "createdAt": str(datetime.datetime.now(datetime.timezone.utc)),
-                        })
-
-                    related_search.extend(rs or [])
-                    related_items.extend(ri or [])
-
-                except Exception as e:
-                    logger.warning(f"[RuyiPageBrowser] 解析数据包失败: {e}")
+        for packet in packets:
+            try:
+                body = self._extract_packet_body(packet)
+                if not body:
                     continue
-        finally:
-            sub_loop.close()
+
+                body_text = self._normalize_response_body(body)
+                if not body_text:
+                    logger.debug("[RuyiPageBrowser] 响应体为空或无法解码，跳过")
+                    continue
+
+                result = demo_with_real_data(body_text)
+                rs = get_related_search(body_text)
+                ri = get_related_items(body_text)
+
+                for item in result:
+                    if item.get("site", ".jp").endswith(".jp"):
+                        continue
+                    new_datas.append({
+                        "index": item.get("id"),
+                        "word": item.get("title"),
+                        "domain": item.get("site"),
+                        "link": item.get("url"),
+                        "image": item.get("image"),
+                        "info": {
+                            "desc": item.get("desc"),
+                            "brand": item.get("brand"),
+                            "price": item.get("price"),
+                            "currency": item.get("currency"),
+                            "score": item.get("score"),
+                            "review": item.get("review"),
+                        },
+                        "parent": keyid,
+                        "stat": -1,
+                        "createdAt": str(datetime.datetime.now(datetime.timezone.utc)),
+                    })
+
+                related_search.extend(rs or [])
+                related_items.extend(ri or [])
+
+            except Exception as e:
+                logger.warning(f"[RuyiPageBrowser] 解析数据包失败: {e}")
+                continue
 
         if packets and not new_datas:
             sample = packets[0]
@@ -482,14 +472,10 @@ class RuyiPageBrowser:
 # 单关键词搜索
 # ──────────────────────────────────────────────────────────────
 
-async def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, params,
-                               run_in_browser_thread, max_retries: int = 2):
+def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, params, max_retries: int = 2):
     """
     搜索单个关键词。
 
-    Args:
-        run_in_browser_thread: 由 search_keyword_batch 传入的专属单线程提交函数，
-                               保证所有浏览器操作始终在同一个固定线程里执行。
     Returns:
         True  — 成功
         False — 失败（已重试完）
@@ -503,12 +489,7 @@ async def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, pa
         try:
             logger.info(f"[{keyword}] 开始搜索 (尝试 {attempt + 1}/{max_retries})")
 
-            # ── 同步：浏览器操作 + 数据包解析（在专属线程里执行）──
-            aggregated_data = await run_in_browser_thread(
-                browser.listen_and_collect,
-                keyword_item,
-                params,
-            )
+            aggregated_data = browser.listen_and_collect(keyword_item, params)
 
             # None 表示验证码 / 代理失败
             if aggregated_data is None:
@@ -516,15 +497,15 @@ async def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, pa
                     f"[work-{params.worker_id}][{params.task_id}][{keyword}] "
                     f"{params.proxies['server']} Verification code"
                 )
-                await params.app.set_fail(params.atm, params.proxies)
+                params.app.set_fail(params.atm, params.proxies)
                 return None
 
             # ── 异步：数据处理 + API 上报 ─────────────────────────
             if aggregated_data["new_datas"]:
                 logger.info(f"[{keyword}] 处理 {len(aggregated_data['new_datas'])} 条数据")
 
-                products         = await deal_info_by_async(aggregated_data["new_datas"], params)
-                shopify_products = await deal_shopify_product_info_async(params, products)
+                products = deal_info(aggregated_data["new_datas"], params)
+                shopify_products = deal_shopify_product_info(params, products)
 
                 google_item = {
                     "id":           keyid,
@@ -538,12 +519,10 @@ async def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, pa
                     "products":     json.dumps(products),
                 }
 
-                if products or shopify_products:
-                    async with aiohttp.ClientSession() as session:
-                        if products:
-                            await send_items_to_api(params, google_item)
-                        if shopify_products:
-                            await send_shopify_product_to_api(session, params, shopify_products)
+                if products:
+                    send_items_to_api(params, google_item)
+                if shopify_products:
+                    send_shopify_product_to_api(params, shopify_products)
 
                 logger.info(f"[{keyword}] 数据上报完成")
             else:
@@ -553,7 +532,7 @@ async def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, pa
                 f"[work-{params.worker_id}][{params.task_id}][{keyword}] "
                 f"{params.proxies['server']} success"
             )
-            await params.app.set_success(params.atm, params.proxies)
+            params.app.set_success(params.atm, params.proxies)
             return True
 
         except Exception as e:
@@ -573,11 +552,11 @@ async def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, pa
                     f"[work-{params.worker_id}][{params.task_id}][{keyword}] "
                     f"{proxy_server or 'unknown_proxy'} ERR_PROXY_OR_NETWORK"
                 )
-                await params.app.set_fail(params.atm, params.proxies)
+                params.app.set_fail(params.atm, params.proxies)
                 return None
 
             if attempt < max_retries - 1:
-                await asyncio.sleep(3)
+                time.sleep(3)
             else:
                 logger.error(f"[{keyword}] 已达最大重试次数，跳过")
                 return False
@@ -589,36 +568,24 @@ async def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, pa
 # 批量搜索
 # ──────────────────────────────────────────────────────────────
 
-async def search_keyword_batch(params):
+def search_keyword_batch(params):
     """
     批量搜索关键词。
     每次调用从 SQLite 最多取 datanum 条任务，在同一个浏览器里跑完后关闭。
 
-    关键设计：
-        ruyiPage 的 Firefox 驱动是线程绑定的（内部用 ThreadLocal 管理），
-        initialize() / listen_and_collect() / close() 必须在【同一个线程】里执行。
-        这里用 ThreadPoolExecutor(max_workers=1) 创建一个专属单线程执行器，
-        所有浏览器操作都 submit 到这个执行器，确保始终跑在同一线程上。
+    ruyiPage 的 Firefox 驱动是线程绑定的（内部用 ThreadLocal 管理），
+    当前同步版本要求整个 worker 线程独占浏览器对象，因此浏览器操作
+    全部直接在当前线程中执行。
     """
     db: DbManager = params.db
-    loop = asyncio.get_event_loop()
 
-    # ── 1. 获取代理 ───────────────────────────────────────────────
     while True:
-        proxy = await params.app.get_random_proxy()
+        proxy = params.app.get_random_proxy()
         if proxy:
             params.proxies = proxy
             break
         logger.info(f"[Worker-{params.worker_id}] 暂无可用代理，等待 30s")
-        await asyncio.sleep(30)
-
-    # ── 2. 创建专属单线程执行器 ────────────────────────────────────
-    # max_workers=1 保证所有任务都跑在同一个固定线程里
-    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"ruyi-worker-{params.worker_id}")
-
-    def run_in_browser_thread(fn, *args):
-        """把同步函数提交到专属线程，返回 Future，再用 asyncio 等待。"""
-        return loop.run_in_executor(executor, fn, *args)
+        time.sleep(30)
 
     browser = RuyiPageBrowser(
         language_code=params.language_code,
@@ -628,12 +595,8 @@ async def search_keyword_batch(params):
     )
 
     try:
-        # ── 3. 在专属线程里初始化浏览器 ───────────────────────────
         logger.info(f"[Worker-{params.worker_id}] 初始化浏览器，代理: {params.proxies['server']}")
-        await asyncio.wait_for(
-            run_in_browser_thread(browser.initialize),
-            timeout=30.0,
-        )
+        browser.initialize()
 
         # ── 4. 逐词处理 ───────────────────────────────────────────
         success_count = 0
@@ -643,8 +606,7 @@ async def search_keyword_batch(params):
 
         while processed < params.datanum:
 
-            # 4-a. 取任务
-            db_task = await _fetch_task_with_refill(db, params)
+            db_task = _fetch_task_with_refill(db, params)
             if db_task is None:
                 logger.info(f"[Worker-{params.worker_id}] 补词后仍无任务，结束本批")
                 break
@@ -655,70 +617,50 @@ async def search_keyword_batch(params):
             }
             logger.info(f"[Worker-{params.worker_id}] 开始搜索: {keyword_item['name']}")
 
-            # 4-b. 搜索单词（把专属执行器透传进去）
-            success = await search_single_keyword(browser, keyword_item, params, run_in_browser_thread)
+            success = search_single_keyword(browser, keyword_item, params)
             processed += 1
 
             if success is True:
-                await db.mark_success(db_task["id"])
+                db.mark_success(db_task["id"])
                 success_count += 1
             elif success is None:
-                await db.mark_failed(db_task["id"])
+                db.mark_failed(db_task["id"])
                 logger.warning(f"[Worker-{params.worker_id}] 验证码或代理失败，结束本批")
                 captcha_hit = True
                 break
             else:
-                await db.mark_failed(db_task["id"])
+                db.mark_failed(db_task["id"])
                 fail_count += 1
 
-            # 4-c. 异步触发水线检查
-            asyncio.create_task(
-                db.auto_refresh_if_needed(),
-                name=f"Worker-{params.worker_id}/refill",
-            )
+            db.auto_refresh_if_needed()
 
-        await db.print_stats()
+        db.print_stats()
         logger.info(
             f"[Worker-{params.worker_id}] 本批结束 — "
             f"处理: {processed}, 成功: {success_count}, 失败: {fail_count}"
             + (" [验证码/代理中断]" if captcha_hit else "")
         )
 
-    except asyncio.CancelledError:
-        logger.info(f"[Worker-{params.worker_id}] search_keyword_batch 被取消")
-        raise
-
-    except asyncio.TimeoutError:
-        logger.error(f"[Worker-{params.worker_id}] 浏览器初始化超时")
-        raise
-
     except Exception as e:
         logger.exception(f"[Worker-{params.worker_id}] 批量搜索异常: {e}")
         raise
 
     finally:
-        # 关浏览器也必须在同一个专属线程里执行
         try:
-            await asyncio.wait_for(
-                run_in_browser_thread(browser.close),
-                timeout=10.0,
-            )
+            browser.close()
         except Exception as e:
             logger.warning(f"[Worker-{params.worker_id}] 关闭浏览器失败: {e}")
-        finally:
-            # 关闭执行器，释放线程资源
-            executor.shutdown(wait=False)
 
 
 # ──────────────────────────────────────────────────────────────
 # 补词逻辑（与原版完全一致）
 # ──────────────────────────────────────────────────────────────
 
-async def _fetch_task_with_refill(db: DbManager, params, max_wait_rounds: int = 6) -> dict | None:
+def _fetch_task_with_refill(db: DbManager, params, max_wait_rounds: int = 6) -> dict | None:
     """
     取一条任务。取不到时触发补词并等待，最多等 max_wait_rounds * 10s。
     """
-    db_task = await db.fetch_one_task_safe(task_id=params.task_id)
+    db_task = db.fetch_one_task_safe(task_id=params.task_id)
     if db_task:
         return db_task
 
@@ -727,19 +669,20 @@ async def _fetch_task_with_refill(db: DbManager, params, max_wait_rounds: int = 
     for round_i in range(1, max_wait_rounds + 1):
         if db.fetch_func:
             try:
-                await db.fetch_func()
+                db.fetch_func()
             except Exception as e:
                 logger.error(f"[Worker-{params.worker_id}] 补词异常: {e}")
 
-        from main import _current_task_info
-        if _current_task_info and _current_task_info.get("id") != params.task_id:
+        from main import get_current_task_info_snapshot
+        current_task_info = get_current_task_info_snapshot()
+        if current_task_info and current_task_info.get("id") != params.task_id:
             logger.info(
                 f"[Worker-{params.worker_id}] task_id 更新: "
-                f"{params.task_id} -> {_current_task_info.get('id')}"
+                f"{params.task_id} -> {current_task_info.get('id')}"
             )
-            params.task_id = _current_task_info.get("id")
+            params.task_id = current_task_info.get("id")
 
-        db_task = await db.fetch_one_task_safe(task_id=params.task_id)
+        db_task = db.fetch_one_task_safe(task_id=params.task_id)
         if db_task:
             logger.info(f"[Worker-{params.worker_id}] 补词后取到任务（第 {round_i} 轮）")
             return db_task
@@ -748,6 +691,6 @@ async def _fetch_task_with_refill(db: DbManager, params, max_wait_rounds: int = 
             f"[Worker-{params.worker_id}] 补词后仍无任务，等待 10s "
             f"({round_i}/{max_wait_rounds})"
         )
-        await asyncio.sleep(10)
+        time.sleep(10)
 
     return None

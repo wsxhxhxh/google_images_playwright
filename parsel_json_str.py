@@ -2,44 +2,32 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-JSON 递归提取工具 (异步版本)
-支持递归解析嵌套的JSON字符串
+JSON 递归提取工具（同步版本）。
 """
 
 import json
 import re
-import asyncio
 from lxml import etree
-from typing import List, Any, Tuple, Union
+from typing import Any, List, Tuple
 from config import logger
 
 
-class AsyncRecursiveJSONExtractor:
-    """异步递归JSON提取器类"""
+class RecursiveJSONExtractor:
+    """同步递归 JSON 提取器。"""
 
     @staticmethod
-    async def extract_json_arrays(text: str, recursive: bool = True) -> List[Any]:
-        """
-        从文本中提取所有有效的JSON数组，支持递归解析
-
-        Args:
-            text: 包含JSON字符串的原始文本
-            recursive: 是否递归解析内部的JSON字符串
-
-        Returns:
-            解析后的JSON对象列表
-        """
+    def extract_json_arrays(text: str, recursive: bool = True) -> List[Any]:
         results = []
         i = 0
 
         while i < len(text):
             if text[i] == '[':
-                json_str, end_pos = AsyncRecursiveJSONExtractor._extract_single_json(text, i)
+                json_str, end_pos = RecursiveJSONExtractor._extract_single_json(text, i)
                 if json_str:
                     try:
                         json_obj = json.loads(json_str)
                         if recursive:
-                            json_obj = await AsyncRecursiveJSONExtractor._recursive_parse(json_obj)
+                            json_obj = RecursiveJSONExtractor._recursive_parse(json_obj)
                         results.append(json_obj)
                         i = end_pos
                     except json.JSONDecodeError:
@@ -49,69 +37,38 @@ class AsyncRecursiveJSONExtractor:
         return results
 
     @staticmethod
-    async def _recursive_parse(obj: Any) -> Any:
-        """
-        递归解析对象中的JSON字符串
-
-        Args:
-            obj: 要解析的对象
-
-        Returns:
-            解析后的对象
-        """
+    def _recursive_parse(obj: Any) -> Any:
         if isinstance(obj, str):
-            # 尝试解析字符串是否为JSON
             obj = obj.strip()
             if (obj.startswith('[') or obj.startswith('{')) and len(obj) > 1:
                 try:
                     parsed = json.loads(obj)
-                    # 递归解析内部内容
-                    return await AsyncRecursiveJSONExtractor._recursive_parse(parsed)
+                    return RecursiveJSONExtractor._recursive_parse(parsed)
                 except (json.JSONDecodeError, ValueError):
-                    # 不是有效的JSON，返回原字符串
                     return obj
             return obj
 
-        elif isinstance(obj, list):
-            # 并发递归处理列表中的每个元素
-            tasks = [AsyncRecursiveJSONExtractor._recursive_parse(item) for item in obj]
-            return await asyncio.gather(*tasks)
+        if isinstance(obj, list):
+            return [RecursiveJSONExtractor._recursive_parse(item) for item in obj]
 
-        elif isinstance(obj, dict):
-            # 并发递归处理字典中的每个值
-            keys = list(obj.keys())
-            values = list(obj.values())
-            tasks = [AsyncRecursiveJSONExtractor._recursive_parse(value) for value in values]
-            parsed_values = await asyncio.gather(*tasks)
-            return {key: value for key, value in zip(keys, parsed_values)}
+        if isinstance(obj, dict):
+            return {key: RecursiveJSONExtractor._recursive_parse(value) for key, value in obj.items()}
 
-        else:
-            # 其他类型直接返回
-            return obj
+        return obj
 
     @staticmethod
-    async def extract_json_with_strings(text: str, recursive: bool = True) -> List[Tuple[str, Any]]:
-        """
-        从文本中提取所有有效的JSON数组，同时返回原始字符串
-
-        Args:
-            text: 包含JSON字符串的原始文本
-            recursive: 是否递归解析内部的JSON字符串
-
-        Returns:
-            (原始JSON字符串, 解析后的对象) 元组列表
-        """
+    def extract_json_with_strings(text: str, recursive: bool = True) -> List[Tuple[str, Any]]:
         results = []
         i = 0
 
         while i < len(text):
             if text[i] == '[':
-                json_str, end_pos = AsyncRecursiveJSONExtractor._extract_single_json(text, i)
+                json_str, end_pos = RecursiveJSONExtractor._extract_single_json(text, i)
                 if json_str:
                     try:
                         json_obj = json.loads(json_str)
                         if recursive:
-                            json_obj = await AsyncRecursiveJSONExtractor._recursive_parse(json_obj)
+                            json_obj = RecursiveJSONExtractor._recursive_parse(json_obj)
                         results.append((json_str, json_obj))
                         i = end_pos
                     except json.JSONDecodeError:
@@ -122,16 +79,6 @@ class AsyncRecursiveJSONExtractor:
 
     @staticmethod
     def _extract_single_json(text: str, start: int) -> Tuple[str, int]:
-        """
-        从指定位置提取单个JSON数组
-
-        Args:
-            text: 文本内容
-            start: 开始位置
-
-        Returns:
-            (JSON字符串, 结束位置)
-        """
         bracket_count = 0
         in_string = False
         escape_next = False
@@ -171,30 +118,21 @@ class AsyncRecursiveJSONExtractor:
         return None, start
 
 
-async def demo_with_real_data(real_data):
-    """使用真实的Google搜索数据演示 (异步版本)"""
+def demo_with_real_data(real_data):
+    """使用真实 Google 搜索数据演示（同步版本）。"""
+    extractor = RecursiveJSONExtractor()
+    results = extractor.extract_json_arrays(real_data, recursive=True)
 
-    extractor = AsyncRecursiveJSONExtractor()
-
-    # 递归解析
-    results = await extractor.extract_json_arrays(real_data, recursive=True)
-
-    # 并发处理所有结果
-    tasks = []
+    parsed_results = []
     for obj in results:
         if len(obj) == 1 and isinstance(obj[0], list):
             objs = obj[0]
             for sub_obj in objs:
-                tasks.append(parse_item(sub_obj))
+                parsed_results.append(parse_item(sub_obj))
         else:
-            tasks.append(parse_item(obj))
+            parsed_results.append(parse_item(obj))
 
-    # 并发执行所有解析任务
-    parsed_results = await asyncio.gather(*tasks)
-
-    # 过滤掉None结果
     result_list = [res for res in parsed_results if res]
-    # res = dedupe_by_id(result_list)
     res = dedupe_by_image(result_list)
     logger.info(f"找到: {len(res)}个产品 {res[:3]}...")
     return res
@@ -241,11 +179,8 @@ def get_nested(obj, path, default=""):
         return default
 
 
-async def parse_product_info(data: dict) -> dict:
-    """
-    解析产品信息 (异步版本)
-    data = item[9]，也就是包含 2000 / 2003 / 2006 的 dict
-    """
+def parse_product_info(data: dict) -> dict:
+    """解析产品信息。"""
     result = {
         "brand": "",
         "desc": "",
@@ -259,7 +194,6 @@ async def parse_product_info(data: dict) -> dict:
     if not item2006:
         return result
 
-    # 新结构（你这个 Nike 就是这个）
     info = get_nested(item2006, [12])
     if not info:
         return result
@@ -274,8 +208,8 @@ async def parse_product_info(data: dict) -> dict:
     return result
 
 
-async def parse_basic_info(data: dict) -> dict:
-    """解析基础信息 (异步版本)"""
+def parse_basic_info(data: dict) -> dict:
+    """解析基础信息。"""
     item2003 = data.get("2003")
     if not item2003:
         return {}
@@ -289,11 +223,8 @@ async def parse_basic_info(data: dict) -> dict:
     }
 
 
-async def parse_item(obj):
-    """
-    解析单个item (异步版本)
-    obj 可以是 #63 或 #64
-    """
+def parse_item(obj):
+    """解析单个 item。"""
     if obj is None or isinstance(obj, bool):
         return None
 
@@ -312,10 +243,8 @@ async def parse_item(obj):
     except (KeyError, IndexError, TypeError):
         return None
 
-    # 并发解析基础信息和产品信息
-    base_task = parse_basic_info(meta)
-    product_task = parse_product_info(meta)
-    base, product = await asyncio.gather(base_task, product_task)
+    base = parse_basic_info(meta)
+    product = parse_product_info(meta)
 
     return {
         **base,
@@ -324,15 +253,8 @@ async def parse_item(obj):
         "thumb": get_nested(item, [2, 0]),
     }
 
-async def get_related_search(html_content):
-    """获取相关搜索 (异步版本)"""
-    # lxml操作是CPU密集型,可以在executor中运行
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _get_related_search_sync, html_content)
-
-
 def _get_related_search_sync(html_content):
-    """同步版本的相关搜索获取"""
+    """同步版本的相关搜索获取。"""
     rtn = []
     parser = etree.HTMLParser()
     tree = etree.fromstring(html_content, parser)
@@ -355,28 +277,27 @@ def find_between(text, str1, str2):
     return matches
 
 
-async def get_related_items(html_content):
-    """获取相关项目 (异步版本)"""
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(
-        None,
-        lambda: find_between(decode_escaped_string(html_content), 'jsname="pIvPIe">', '</span>')
-    )
+def get_related_search(html_content):
+    return _get_related_search_sync(html_content)
 
 
-async def test():
-    """主函数 (异步)"""
-    # 异步读取文件
-    import aiofiles
+def get_related_items(html_content):
+    return find_between(decode_escaped_string(html_content), 'jsname="pIvPIe">', '</span>')
+
+
+AsyncRecursiveJSONExtractor = RecursiveJSONExtractor
+
+
+def test():
+    """主函数（同步）。"""
     import datetime
-    import aiohttp
-    from deal_product_func_async import deal_info_by_async
+    from deal_product_func_async import deal_info
     from platform_api import send_items_to_api
 
     file_path = r"C:\Users\XXX\Desktop\111\html_temp_9.txt"
 
-    async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
-        text = await f.read()
+    with open(file_path, "r", encoding="utf-8") as f:
+        text = f.read()
 
     class P: pass
     params = P()
@@ -386,8 +307,13 @@ async def test():
     params.usenum = 20
     params.desimagenum = 20
     params.collect_platform_type = None
+    params.worker_id = 1
+    params.agent_url = ""
+    params.dbuser = ""
+    params.dbpasswd = ""
+    params.agent_key = ""
 
-    result = await demo_with_real_data(text)
+    result = demo_with_real_data(text)
     new_datas = []
     for index, item in enumerate(result):
         if item.get("site", ".jp").endswith('.jp'):
@@ -413,7 +339,7 @@ async def test():
         new_datas.append(new_data)
 
     print(len(new_datas), new_datas[:1])
-    ll = await deal_info_by_async(new_datas, params)
+    ll = deal_info(new_datas, params)
     print(len(ll), ll[:1])
 
 
@@ -429,12 +355,7 @@ async def test():
         'products': json.dumps(ll)
     }
 
-    async with aiohttp.ClientSession() as session:
-        await send_items_to_api(session, params, google_item)
-    # print(ll)
-
-
+    send_items_to_api(params, google_item)
 
 if __name__ == '__main__':
-    # 运行异步主函数
-    asyncio.run(test())
+    test()

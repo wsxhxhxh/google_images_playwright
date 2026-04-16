@@ -1,11 +1,7 @@
-#deal_product_func.py
 import re
 import json
 import random
 import urllib
-import asyncio
-
-from config import logger
 
 
 def select_random_elements(input_list, count):
@@ -125,18 +121,8 @@ def extract_number(text):
     return 0
 
 
-async def deal_info_by_async(productlist, params):
-    """
-    异步处理产品信息
-
-    Args:
-        productlist: 产品列表
-        usenum: 使用数量
-        desimagenum: 描述图片数量
-
-    Returns:
-        处理后的产品数据列表
-    """
+def deal_info(productlist, params):
+    """同步处理产品信息。"""
     datas = []
     descriptions = []
 
@@ -209,18 +195,8 @@ async def deal_info_by_async(productlist, params):
     return datas
 
 
-async def deal_shopify_product_info_async(params, products):
-    """
-    异步处理Shopify产品信息
-
-    Args:
-        languageid: 语言ID
-        jxycategory_id: 分类ID
-        products: 产品列表
-
-    Returns:
-        处理后的Shopify产品数据列表
-    """
+def deal_shopify_product_info(params, products):
+    """同步处理 Shopify 产品信息。"""
     datas = []
 
     for item in products:
@@ -238,10 +214,19 @@ async def deal_shopify_product_info_async(params, products):
 
     return datas
 
-# 使用示例
-async def main():
-    """测试异步函数"""
-    # 模拟产品数据
+
+# 同步主链路使用的新函数名
+deal_info_by_sync = deal_info
+deal_shopify_product_info_sync = deal_shopify_product_info
+
+
+# 兼容旧导入名，供未迁移的历史代码引用
+deal_info_by_async = deal_info
+deal_shopify_product_info_async = deal_shopify_product_info
+
+
+def main():
+    """简单测试。"""
     test_products = [
         {
             "parent": "test-parent",
@@ -261,13 +246,19 @@ async def main():
         }
     ]
 
-    # 测试异步函数
-    result = await deal_info_by_async(test_products, 20, 5)
-    print("异步处理结果:", json.dumps(result, indent=2))
+    class Params:
+        usenum = 20
+        desimagenum = 5
+        jxycategory_id = 1
+        languageid = 1
+        collect_platform_type = None
 
-    shopify_result = await deal_shopify_product_info_async(1, 1, result)
+    result = deal_info(test_products, Params())
+    print("处理结果:", json.dumps(result, indent=2))
+
+    shopify_result = deal_shopify_product_info(Params(), result)
     print("Shopify产品信息:", json.dumps(shopify_result, indent=2))
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

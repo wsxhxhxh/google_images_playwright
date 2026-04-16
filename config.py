@@ -1,7 +1,7 @@
 # config.py
 import os
-import asyncio
 import logging
+import threading
 from dotenv import load_dotenv
 from logging.handlers import TimedRotatingFileHandler
 
@@ -9,11 +9,8 @@ load_dotenv()
 
 class TaskNameFilter(logging.Filter):
     def filter(self, record):
-        try:
-            task = asyncio.current_task()
-            record.task_name = task.get_name() if task else "Main"
-        except RuntimeError:
-            record.task_name = "Main"
+        thread_name = threading.current_thread().name
+        record.task_name = thread_name if thread_name else "Main"
         return True
 
 
