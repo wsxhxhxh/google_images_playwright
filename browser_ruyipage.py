@@ -430,6 +430,7 @@ class RuyiPageBrowser:
             wait(count=1, timeout=秒) -> DataPacket | None
         每次返回一个包或 None（超时/无包）。
         """
+        first_debug = True
         deadline = time.time() + timeout
         while time.time() < deadline:
             remaining = deadline - time.time()
@@ -441,6 +442,10 @@ class RuyiPageBrowser:
                 if packet is None:
                     # 连续无包，说明当前没有新请求了，提前退出
                     break
+                if first_debug:
+                    self._debug_packet_structure(packet)
+                    first_debug = False
+
                 url = self._extract_packet_url(packet)
                 if self._is_target_search_url(url):
                     packets.append(packet)
