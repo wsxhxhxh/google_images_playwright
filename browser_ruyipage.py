@@ -282,7 +282,7 @@ class RuyiPageBrowser:
                 body_bytes = data.bytes  # bytes 类型
                 collector.disown(request_id)  # 释放浏览器内存
 
-                body_text = self._normalize_response_body(body_bytes)
+                body_text = self._decompress_and_decode(body_bytes, packet)
                 if not body_text:
                     continue
 
@@ -337,6 +337,56 @@ class RuyiPageBrowser:
             "related_search": list(set(related_search)),
             "related_items": list(set(related_items)),
         }
+
+    def _decompress_and_decode(self, body_bytes: bytes, packet=None) -> str:
+        """根据响应头 Content-Encoding 解压并解码响应体"""
+        if not body_bytes:
+            return ""
+
+        # 从 packet.headers 判断编码方式
+        encoding = ""
+        if packet:
+            headers = getattr(packet, "headers", {}) or {}
+            encoding = headers.get("content-encoding", "").lower()
+
+        # 按编码方式解压
+        try:
+            if encoding == "br":
+                import brotli
+                body_bytes = brotli.decompress(body_bytes)
+            elif encoding in ("gzip", "x-gzip"):
+                import gzip
+                body_bytes = gzip.decompress(body_bytes)
+            elif encoding == "zstd":
+                import zstandard as zstd
+                body_bytes = zstd.ZstdDecompressor().decompress(body_bytes)
+            elif encoding == "deflate":
+                import zlib
+                try:
+                    body_bytes = zlib.decompress(body_bytes)
+                except zlib.error:
+                    body_bytes = zlib.decompress(body_bytes, -zlib.MAX_WBITS)
+            else:
+                # 没有明确编码，逐个尝试
+                for decompress_fn in [
+                    lambda b: __import__('brotli').decompress(b),
+                    lambda b: __import__('gzip').decompress(b),
+                    lambda b: __import__('zlib').decompress(b),
+                ]:
+                    try:
+                        body_bytes = decompress_fn(body_bytes)
+                        break
+                    except Exception:
+                        continue
+
+        except Exception as e:
+            logger.debug(f"[RuyiPageBrowser] 解压失败({encoding}): {e}，尝试直接解码")
+
+        # 解码为字符串
+        try:
+            return body_bytes.decode("utf-8")
+        except Exception:
+            return body_bytes.decode("utf-8", errors="ignore")
 
     def _normalize_response_body(self, body) -> str:
         """
