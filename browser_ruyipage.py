@@ -360,38 +360,14 @@ class RuyiPageBrowser:
         """
         从 ruyiPage 数据包中提取 body，兼容对象/字典两种结构。
         """
-        candidate_keys = ("body", "text", "data", "content", "raw_body", "response_body")
+        body = getattr(packet, "body", None)
+        if body:
+            return body
 
-        def _pick_from_dict(d: dict):
-            for k in candidate_keys:
-                if k in d and d.get(k):
-                    return d.get(k)
-            return None
-
-        # 结构1: packet.response.body（对象）
+        # 兜底：response["content"]
         response = getattr(packet, "response", None)
-        if response is not None:
-            # response 可能是 dict，也可能是对象
-            if isinstance(response, dict):
-                body = _pick_from_dict(response)
-                if body:
-                    return body
-            else:
-                for k in candidate_keys:
-                    value = getattr(response, k, None)
-                    if value:
-                        return value
-
-        # 结构2: packet 本身就是 dict
-        if isinstance(packet, dict):
-            body = _pick_from_dict(packet)
-            if body:
-                return body
-            resp = packet.get("response")
-            if isinstance(resp, dict):
-                body = _pick_from_dict(resp)
-                if body:
-                    return body
+        if isinstance(response, dict):
+            return response.get("content") or response.get("body")
 
         return None
 
@@ -399,18 +375,17 @@ class RuyiPageBrowser:
         """
         从 ruyiPage 数据包中提取 url，兼容对象/字典两种结构。
         """
+        url = getattr(packet, "url", None)
+        if url:
+            return str(url)
+
+        # 兜底：response dict
         response = getattr(packet, "response", None)
-        if response is not None:
-            if isinstance(response, dict):
-                return str(response.get("url", "") or "")
-            return str(getattr(response, "url", "") or "")
+        if isinstance(response, dict):
+            return str(response.get("url", "") or "")
 
         if isinstance(packet, dict):
-            if packet.get("url"):
-                return str(packet.get("url"))
-            resp = packet.get("response")
-            if isinstance(resp, dict):
-                return str(resp.get("url", "") or "")
+            return str(packet.get("url", "") or "")
 
         return ""
 
@@ -476,6 +451,8 @@ class RuyiPageBrowser:
         """临时调试：打印 packet 的完整结构"""
         import inspect
         logger.info(f"=== PACKET TYPE: {type(packet)} ===")
+        logger.info(f"PACKET.url = {getattr(packet, 'url', '<<NOT FOUND>>')}")
+        logger.info(f"PACKET.body = {repr(getattr(packet, 'body', '<<NOT FOUND>>'))[:200]}")
 
         # 如果是对象，打印所有属性
         if not isinstance(packet, dict):
@@ -634,7 +611,8 @@ def search_keyword_batch(params):
         captcha_hit   = False
         processed     = 0
 
-        while processed < params.datanum:
+        # while processed < params.datanum:
+        while processed < 1: # todo
 
             db_task = _fetch_task_with_refill(db, params)
             if db_task is None:
