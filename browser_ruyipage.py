@@ -75,6 +75,7 @@ class RuyiPageBrowser:
             proxies: dict = None,
             headless: bool = False,
             firefox_path: str = None,
+            worker_id: int = 0,
     ):
         self.language_code = language_code
         # proxies 格式: {"server": "socks5://host:port"}
@@ -87,6 +88,10 @@ class RuyiPageBrowser:
     # ── 初始化 ────────────────────────────────────────────────
     def initialize(self):
         """启动 Firefox，创建 FirefoxPage 实例。"""
+        import os
+        import tempfile
+        import threading
+
         opts = FirefoxOptions()
         opts.headless(self.headless)
 
@@ -99,8 +104,27 @@ class RuyiPageBrowser:
         if self.firefox_path:
             opts.set_browser_path(self.firefox_path)
 
+        # 每个 worker 独立一个用户目录，避免浏览器实例复用
+        user_dir = os.path.join(
+            tempfile.gettempdir(),
+            f"ruyipage_worker_{self.worker_id}"
+        )
+        try:
+            if hasattr(opts, "set_user_dir"):
+                opts.set_user_dir(user_dir)
+        except Exception as e:
+            logger.warning(f"[RuyiPageBrowser] set_user_dir 失败: {e}")
+
         self.page = FirefoxPage(opts)
-        logger.info(f"[RuyiPageBrowser] Firefox 启动成功，代理: {proxy_server or '无'}")
+
+        logger.info(
+            f"[RuyiPageBrowser] Firefox 启动成功 "
+            f"worker={self.worker_id}, "
+            f"thread={threading.get_ident()}, "
+            f"page_id={id(self.page)}, "
+            f"user_dir={user_dir}, "
+            f"proxy={proxy_server or '无'}"
+        )
 
     # ── 导航 ──────────────────────────────────────────────────
     def goto(self, url: str, timeout: int = 30):
