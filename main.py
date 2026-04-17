@@ -139,7 +139,8 @@ def worker(worker_id: int, stop_event: threading.Event, db: DbManager,
                     dbuser=task_info.get("product_db_user"),
                     dbpasswd=task_info.get("product_db_password"),
                     dbname=task_info.get("product_db_name"),
-                    datanum=task_info.get("keyword_count", 50),
+                    # datanum=task_info.get("keyword_count", 50),
+                    datanum=1,
                     binddomain=task_info.get("server_main_domain"),
                     language_code=Config.LANGUAGE_CODE_MAP.get(
                         task_info.get("language_code"), "en-US"
