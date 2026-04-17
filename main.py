@@ -116,51 +116,53 @@ def worker(worker_id: int, stop_event: threading.Event, db: DbManager,
            atm: TokenManager, app: ProxyPool):
     logger.info(f"[Worker-{worker_id}] 启动")
 
-    while not stop_event.is_set():
-        pending = db.get_pending_count()
-        if pending == 0:
-            logger.info(f"SQLite 暂无任务，等待 10s")
-            stop_event.wait(10)
-            continue
+    try:
+        while not stop_event.is_set():
+            pending = db.get_pending_count()
+            if pending == 0:
+                logger.info(f"SQLite 暂无任务，等待 10s")
+                stop_event.wait(10)
+                continue
 
-        task_info = get_current_task_info_snapshot()
-        if task_info is None:
-            logger.info(f"task_info 尚未就绪，等待 5s")
-            stop_event.wait(5)
-            continue
+            task_info = get_current_task_info_snapshot()
+            if task_info is None:
+                logger.info(f"task_info 尚未就绪，等待 5s")
+                stop_event.wait(5)
+                continue
 
-        try:
-            params = SearchTaskParams(
-                worker_id=worker_id,
-                tasks=[],
-                agent_url=task_info.get("agent_url"),
-                agent_key=task_info.get("agent_key"),
-                dbuser=task_info.get("product_db_user"),
-                dbpasswd=task_info.get("product_db_password"),
-                dbname=task_info.get("product_db_name"),
-                datanum=task_info.get("keyword_count", 50),
-                binddomain=task_info.get("server_main_domain"),
-                language_code=Config.LANGUAGE_CODE_MAP.get(
-                    task_info.get("language_code"), "en-US"
-                ),
-                usenum=task_info.get("product_count"),
-                desimagenum=task_info.get("image_count"),
-                languageid=task_info.get("language_id"),
-                no_keyword_num=0,
-                jxycategory_id=task_info.get("category_id"),
-                task_id=task_info.get("id"),
-                proxies=None,
-                collect_platform_type=task_info.get("collect_platform_type"),
-                app=app,
-                atm=atm,
-                db=db,
-            )
+            try:
+                params = SearchTaskParams(
+                    worker_id=worker_id,
+                    tasks=[],
+                    agent_url=task_info.get("agent_url"),
+                    agent_key=task_info.get("agent_key"),
+                    dbuser=task_info.get("product_db_user"),
+                    dbpasswd=task_info.get("product_db_password"),
+                    dbname=task_info.get("product_db_name"),
+                    datanum=task_info.get("keyword_count", 50),
+                    binddomain=task_info.get("server_main_domain"),
+                    language_code=Config.LANGUAGE_CODE_MAP.get(
+                        task_info.get("language_code"), "en-US"
+                    ),
+                    usenum=task_info.get("product_count"),
+                    desimagenum=task_info.get("image_count"),
+                    languageid=task_info.get("language_id"),
+                    no_keyword_num=0,
+                    jxycategory_id=task_info.get("category_id"),
+                    task_id=task_info.get("id"),
+                    proxies=None,
+                    collect_platform_type=task_info.get("collect_platform_type"),
+                    app=app,
+                    atm=atm,
+                    db=db,
+                )
 
-            search_keyword_batch(params)
-        except Exception as exc:
-            logger.exception(f"[Worker-{worker_id}] 异常: {exc}")
-
-    logger.info(f"[Worker-{worker_id}] 已停止")
+                search_keyword_batch(params)
+            except Exception as exc:
+                logger.exception(f"[Worker-{worker_id}] 异常: {exc}")
+    finally:
+        db.close()
+        logger.info(f"[Worker-{worker_id}] 已停止")
 
 def main():
     stop_event = threading.Event()

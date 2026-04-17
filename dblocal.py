@@ -6,28 +6,55 @@ from config import logger, special_logger
 
 
 class DbManager:
-    def __init__(self, db_path: str = "tasks.db", low_watermark: int = 20,
-                 fetch_func: Optional[Callable[[], None]] = None):
-        self.db_path      = db_path
-        self.db: Optional[sqlite3.Connection] = None
+    def __init__(
+        self,
+        db_path: str = "tasks.db",
+        low_watermark: int = 20,
+        fetch_func: Optional[Callable[[], None]] = None,
+    ):
+        self.db_path = db_path
+        self.low_watermark = low_watermark
+        self.fetch_func = fetch_func
 
-        self.low_watermark = low_watermark   # 由 main() 动态更新
-        self.fetch_func    = fetch_func      # 由 main() 注入
+        # 只保留补词锁，避免多线程重复补词
+        self._refresh_lock = threading.Lock()
 
-        self._refresh_lock     = threading.Lock()
-        self._transaction_lock = threading.Lock()
+        # 每个线程独立连接
+        self._local = threading.local()
+
+    # ═══════════════════════════════════════════════════════════════
+    # 连接管理
+    # ═══════════════════════════════════════════════════════════════
+
+    def _get_conn(self) -> sqlite3.Connection:
+        """
+        每个线程独立一个 SQLite 连接，避免共享连接带来的串行化和线程竞争。
+        """
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = sqlite3.connect(
+                self.db_path,
+                timeout=30,
+                isolation_level=None,   # 手动控制事务
+                check_same_thread=True, # 每个线程只用自己的连接
+            )
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
+            self._local.conn = conn
+        return conn
 
     # ═══════════════════════════════════════════════════════════════
     # 初始化 / 关闭
     # ═══════════════════════════════════════════════════════════════
 
     def init(self):
-        self.db = sqlite3.connect(self.db_path, check_same_thread=False)
-        self.db.row_factory = sqlite3.Row
-        self.db.execute("PRAGMA journal_mode=WAL")
-        self.db.execute("PRAGMA busy_timeout=5000")
+        """
+        初始化表结构。主线程调用一次即可。
+        """
+        conn = self._get_conn()
 
-        self.db.execute("""
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 keyword     TEXT,
@@ -39,18 +66,27 @@ class DbManager:
                 update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        self.db.execute("""
+        conn.execute("""
             CREATE UNIQUE INDEX IF NOT EXISTS idx_task_unique
             ON tasks(keyword, keyword_id, task_id)
         """)
-        self.db.execute("""
-            CREATE INDEX IF NOT EXISTS idx_status ON tasks(status)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_status_task
+            ON tasks(status, task_id, id)
         """)
-        self.db.commit()
 
     def close(self):
-        if self.db:
-            self.db.close()
+        """
+        关闭当前线程自己的连接。
+        """
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            finally:
+                self._local.conn = None
 
     # ═══════════════════════════════════════════════════════════════
     # 写操作
@@ -58,90 +94,133 @@ class DbManager:
 
     def refresh_tasks(self, task_list: List[Dict]):
         """批量插入（已存在则忽略）"""
-        sql = """
-            INSERT OR IGNORE INTO tasks (keyword, keyword_id, task_id, status, err_num)
-            VALUES (?, ?, ?, 0, 0)
-        """
-        self.db.executemany(sql, [
-            (t["keyword"], t["keyword_id"], t["task_id"])
-            for t in task_list
-        ])
-        self.db.commit()
-
-    def mark_success(self, task_id: int):
-        self.db.execute("""
-            UPDATE tasks SET status = 2, update_time = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """, (task_id,))
-        self.db.commit()
-
-    def mark_failed(self, task_id: int):
-        cursor = self.db.execute("SELECT err_num FROM tasks WHERE id = ?", (task_id,))
-        row = cursor.fetchone()
-        if not row:
+        if not task_list:
             return
 
-        err_num = row["err_num"] + 1
-        new_status = 0 if err_num < 3 else 3
-        self.db.execute("""
-            UPDATE tasks
-            SET err_num = ?, status = ?, update_time = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """, (err_num, new_status, task_id))
-        self.db.commit()
+        conn = self._get_conn()
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            sql = """
+                INSERT OR IGNORE INTO tasks (keyword, keyword_id, task_id, status, err_num)
+                VALUES (?, ?, ?, 0, 0)
+            """
+            conn.executemany(sql, [
+                (t["keyword"], t["keyword_id"], t["task_id"])
+                for t in task_list
+            ])
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    def mark_success(self, task_id: int):
+        conn = self._get_conn()
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.execute("""
+                UPDATE tasks
+                SET status = 2, update_time = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (task_id,))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    def mark_failed(self, task_id: int):
+        conn = self._get_conn()
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = conn.execute(
+                "SELECT err_num FROM tasks WHERE id = ?",
+                (task_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                conn.rollback()
+                return
+
+            err_num = row["err_num"] + 1
+            new_status = 0 if err_num < 3 else 3
+
+            conn.execute("""
+                UPDATE tasks
+                SET err_num = ?, status = ?, update_time = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (err_num, new_status, task_id))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     # ═══════════════════════════════════════════════════════════════
     # 读操作
     # ═══════════════════════════════════════════════════════════════
 
     def get_pending_count(self) -> int:
-        cursor = self.db.execute("SELECT COUNT(*) FROM tasks WHERE status = 0")
+        conn = self._get_conn()
+        cursor = conn.execute("SELECT COUNT(*) FROM tasks WHERE status = 0")
         row = cursor.fetchone()
-        return row[0]
+        return row[0] if row else 0
 
     def fetch_one_task_safe(self, task_id: int) -> Optional[Dict]:
         """
-        原子取任务：status 0 → 1。
-        修复原版 SQL 语法错误（WHERE status=0, and → WHERE status=0 AND）。
+        原子抢任务：status=0 -> status=1
+        不再使用 Python 锁，而是依赖 SQLite 事务。
         """
-        with self._transaction_lock:
-            try:
-                before_changes = self.db.total_changes
-                cursor = self.db.execute("""
-                    SELECT id, keyword, keyword_id, task_id
-                    FROM tasks
-                    WHERE status = 0 AND task_id = ?
-                    LIMIT 1
-                """, (task_id,))
-                row = cursor.fetchone()
+        conn = self._get_conn()
 
-                if not row:
-                    return None
+        try:
+            # 先抢写锁，保证这段事务内的 select + update 原子
+            conn.execute("BEGIN IMMEDIATE")
 
-                row_id = row["id"]
+            cursor = conn.execute("""
+                SELECT id, keyword, keyword_id, task_id
+                FROM tasks
+                WHERE status = 0 AND task_id = ?
+                ORDER BY id
+                LIMIT 1
+            """, (task_id,))
+            row = cursor.fetchone()
 
-                self.db.execute("""
-                    UPDATE tasks
-                    SET status = 1, update_time = CURRENT_TIMESTAMP
-                    WHERE id = ? AND status = 0
-                """, (row_id,))
-
-                if self.db.total_changes == before_changes:
-                    return None
-
-                self.db.commit()
-
-                return {
-                    "id":         row["id"],
-                    "keyword":    row["keyword"],
-                    "keyword_id": row["keyword_id"],
-                    "task_id":    row["task_id"],
-                }
-
-            except Exception as e:
-                self.db.rollback()
-                logger.error(f"[DB] 获取任务失败: {e}")
+            if not row:
+                conn.rollback()
                 return None
+
+            result = conn.execute("""
+                UPDATE tasks
+                SET status = 1, update_time = CURRENT_TIMESTAMP
+                WHERE id = ? AND status = 0
+            """, (row["id"],))
+
+            if result.rowcount != 1:
+                conn.rollback()
+                return None
+
+            conn.commit()
+
+            return {
+                "id": row["id"],
+                "keyword": row["keyword"],
+                "keyword_id": row["keyword_id"],
+                "task_id": row["task_id"],
+            }
+
+        except sqlite3.OperationalError as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            logger.warning(f"[DB] 获取任务冲突/锁等待失败: {e}")
+            return None
+
+        except Exception as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            logger.error(f"[DB] 获取任务失败: {e}")
+            return None
 
     # ═══════════════════════════════════════════════════════════════
     # 低水线自动补词
@@ -150,8 +229,7 @@ class DbManager:
     def auto_refresh_if_needed(self):
         """
         检查 pending 数量是否低于低水线；若低则调用 fetch_func 补词。
-        fetch_func 由 main() 注入，签名为 sync () -> None。
-        使用双检锁防止多 worker 并发重复触发。
+        使用双检锁避免多 worker 重复触发。
         """
         if not self.fetch_func:
             return
@@ -163,9 +241,7 @@ class DbManager:
             if self.get_pending_count() >= self.low_watermark:
                 return
 
-            logger.info(
-                f"[DB] pending 低于水线 {self.low_watermark}，触发补词..."
-            )
+            logger.info(f"[DB] pending 低于水线 {self.low_watermark}，触发补词...")
             try:
                 self.fetch_func()
             except Exception as e:
@@ -176,15 +252,21 @@ class DbManager:
     # ═══════════════════════════════════════════════════════════════
 
     def get_status_stats(self) -> Dict:
-        cursor = self.db.execute("SELECT status, COUNT(*) FROM tasks GROUP BY status")
+        conn = self._get_conn()
+        cursor = conn.execute("SELECT status, COUNT(*) FROM tasks GROUP BY status")
         rows = cursor.fetchall()
 
         stats = {"pending": 0, "processing": 0, "success": 0, "failed": 0}
         for status, count in rows:
-            if status == 0: stats["pending"]    = count
-            elif status == 1: stats["processing"] = count
-            elif status == 2: stats["success"]    = count
-            elif status == 3: stats["failed"]     = count
+            if status == 0:
+                stats["pending"] = count
+            elif status == 1:
+                stats["processing"] = count
+            elif status == 2:
+                stats["success"] = count
+            elif status == 3:
+                stats["failed"] = count
+
         stats["total"] = sum(stats.values())
         return stats
 
