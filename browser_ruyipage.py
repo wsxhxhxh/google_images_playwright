@@ -211,164 +211,76 @@ class RuyiPageBrowser:
                 self.page.run_js(f"window.scrollBy(0, -{back});")
                 random_sleep(0.3, 0.6)
 
-    def human_scroll_to_bottom(self):
-        """快速滚动到底部（轻量版）"""
+
+    def slight_random_scroll(self):
+        """只轻微随机滚动一点点"""
         self._require_page()
-        self.page.run_js("window.scrollTo(0, document.body.scrollHeight);")
-        random_sleep(0.3, 0.6)
+        distance = random.randint(120, 260)
+        self.page.run_js(f"window.scrollBy(0, {distance});")
+        random_sleep(0.3, 0.8)
 
     # ── 响应捕获 ──────────────────────────────────────────────
 
-    def listen_and_collect(self, keyword_item: dict, params) -> list[dict]:
+    def search_and_get_html(self, keyword_item: dict, params) -> dict | None:
         self._require_page()
         keyword = keyword_item["name"]
-        keyid = keyword_item["id"]
 
-        collector = self.page.network.add_data_collector(
-            ["responseCompleted"], data_types=["response"]
-        )
-        self.page.listen.start("google.com/search")
-        logger.info(f"[RuyiPageBrowser] 开始监听响应，关键词: {keyword}")
+        self.goto(f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl")
+        random_sleep(0.5, 1.0)
 
-        packets = []
-        try:
-            self.goto(f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl")
-            random_sleep(0.5, 1.0)
+        current_url = self.page.url
+        if "/sorry/" in current_url or "sorry" in current_url:
+            logger.warning(f"[RuyiPageBrowser] 检测到验证页面: {current_url}")
+            return None
 
-            current_url = self.page.url
-            if "/sorry/" in current_url or "sorry" in current_url:
-                logger.warning(f"[RuyiPageBrowser] 检测到验证页面: {current_url}")
-                return None
+        self.handle_cookie_consent()
 
-            self.human_type_and_submit(keyword_item)
-            random_sleep(0.8, 1.2)
+        self.human_type_and_submit(keyword_item)
+        random_sleep(1.0, 1.8)
 
-            current_url = self.page.url
-            if "/sorry/" in current_url or "sorry" in current_url:
-                logger.warning(f"[RuyiPageBrowser] 搜索后检测到验证页面: {current_url}")
-                return None
+        current_url = self.page.url
+        if "/sorry/" in current_url or "sorry" in current_url:
+            logger.warning(f"[RuyiPageBrowser] 搜索后检测到验证页面: {current_url}")
+            return None
 
-            logger.info(f"[RuyiPageBrowser] 等待初始数据包...")
-            self._collect_packets(packets, timeout=15)
+        # 只做一点点滚动
+        self.slight_random_scroll()
+        random_sleep(0.5, 1.0)
 
-            logger.info(f"[RuyiPageBrowser] 开始滚动页面")
-            self.human_scroll_to_bottom()
-            self._collect_packets(packets, timeout=10)
+        html = self.get_rendered_html()
+        if not html:
+            logger.warning(f"[RuyiPageBrowser] 未获取到页面 HTML，关键词: {keyword}")
+            return {
+                "html": "",
+                "new_datas": [],
+                "domains": [],
+                "related_search": [],
+                "related_items": [],
+            }
 
-            logger.info(f"[RuyiPageBrowser] 共收到 {len(packets)} 个数据包")
+        logger.info(f"[RuyiPageBrowser] 已获取渲染后 HTML，长度: {len(html)}")
 
-        finally:
-            self.page.listen.stop()
-
-        new_datas = []
-        related_search = []
-        related_items = []
-
-        for packet in packets:
-            request_id = None
-            try:
-                request_id = packet.request.get("request") if isinstance(packet.request, dict) else getattr(
-                    packet.request, "request", None)
-                if not request_id:
-                    logger.debug("[RuyiPageBrowser] packet 无 request_id，跳过")
-                    continue
-
-                # ── FIX 1: wrap collector.get() to catch Firefox decompression errors ──
-                try:
-                    data = collector.get(request_id, data_type="response")
-                except Exception as e:
-                    logger.warning(f"[RuyiPageBrowser] collector.get() 失败 (Firefox 解压错误): {e}")
-                    continue
-
-                if not data or not data.has_data:
-                    logger.debug(f"[RuyiPageBrowser] collector 无数据, url={packet.url[:80]}")
-                    continue
-
-                # ── FIX 2: guard against bytes returning a dict like {'size': 0} ──
-                try:
-                    body_bytes = data.bytes
-                except Exception as e:
-                    logger.warning(f"[RuyiPageBrowser] data.bytes 访问失败: {e}")
-                    continue
-
-                if not isinstance(body_bytes, (bytes, bytearray)):
-                    # Collector returned metadata dict instead of actual bytes
-                    logger.warning(
-                        f"[RuyiPageBrowser] data.bytes 返回非字节类型: "
-                        f"{type(body_bytes)} = {repr(body_bytes)[:120]}，跳过"
-                    )
-                    continue
-
-                if len(body_bytes) == 0:
-                    logger.debug(f"[RuyiPageBrowser] 响应体为空, url={packet.url[:80]}")
-                    continue
-
-                # ── FIX 3: pass packet.headers for correct decompression ──
-                headers = getattr(packet, "headers", {}) or {}
-                if not headers and isinstance(packet.response, dict):
-                    headers = packet.response.get("headers", {}) or {}
-
-                body_text = self._decompress_and_decode(body_bytes, packet)
-                if not body_text:
-                    continue
-
-                result = demo_with_real_data(body_text)
-                rs = get_related_search(body_text)
-                ri = get_related_items(body_text)
-
-                for item in result:
-                    if item.get("site", ".jp").endswith(".jp"):
-                        continue
-                    new_datas.append({
-                        "index": item.get("id"),
-                        "word": item.get("title"),
-                        "domain": item.get("site"),
-                        "link": item.get("url"),
-                        "image": item.get("image"),
-                        "info": {
-                            "desc": item.get("desc"),
-                            "brand": item.get("brand"),
-                            "price": item.get("price"),
-                            "currency": item.get("currency"),
-                            "score": item.get("score"),
-                            "review": item.get("review"),
-                        },
-                        "parent": keyid,
-                        "stat": -1,
-                        "createdAt": str(datetime.datetime.now(datetime.timezone.utc)),
-                    })
-
-                related_search.extend(rs or [])
-                related_items.extend(ri or [])
-
-            except Exception as e:
-                logger.warning(f"[RuyiPageBrowser] 解析数据包失败: {e}")
-                continue
-            finally:
-                # Always release browser memory even on error
-                if request_id:
-                    try:
-                        collector.disown(request_id)
-                    except Exception:
-                        pass
-
-        try:
-            collector.remove()
-        except Exception as e:
-            logger.warning(f"[RuyiPageBrowser] collector.remove() 失败: {e}")
-
-        if packets and not new_datas:
-            logger.warning(
-                f"[RuyiPageBrowser] 收到响应包但未解析出商品数据，包数={len(packets)}"
-            )
-
-        logger.info(f"[RuyiPageBrowser] 解析完成，共 {len(new_datas)} 条数据")
         return {
-            "new_datas": new_datas,
-            "domains": list({d["domain"] for d in new_datas if d.get("domain")}),
-            "related_search": list(set(related_search)),
-            "related_items": list(set(related_items)),
+            "html": html,
+            "new_datas": [],
+            "domains": [],
+            "related_search": [],
+            "related_items": [],
         }
+
+    def get_rendered_html(self) -> str:
+        """获取当前页面渲染完成后的 HTML"""
+        self._require_page()
+        try:
+            html = self.page.html
+            if callable(html):
+                html = html()
+            return html or ""
+        except Exception:
+            try:
+                return self.page.run_js("return document.documentElement.outerHTML;") or ""
+            except Exception:
+                return ""
 
     def _decompress_and_decode(self, body_bytes: bytes, packet=None) -> str:
         """根据响应头 Content-Encoding 解压并解码响应体"""
@@ -597,7 +509,7 @@ def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, params, 
         try:
             logger.info(f"[{keyword}] 开始搜索 (尝试 {attempt + 1}/{max_retries})")
 
-            aggregated_data = browser.listen_and_collect(keyword_item, params)
+            aggregated_data = browser.search_and_get_html(keyword_item, params)
 
             # None 表示验证码 / 代理失败
             if aggregated_data is None:
