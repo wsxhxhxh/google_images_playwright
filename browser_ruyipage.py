@@ -87,56 +87,32 @@ class RuyiPageBrowser:
 
     # ── 初始化 ────────────────────────────────────────────────
     def initialize(self):
-        import threading
-
+        """启动 Firefox，创建 FirefoxPage 实例。"""
         opts = FirefoxOptions()
         opts.headless(self.headless)
 
+        # 代理设置
         proxy_server = self.proxies.get("server", "")
         if proxy_server:
             opts.set_proxy(proxy_server)
 
+        # 自定义 Firefox 路径（可选）
         if self.firefox_path:
             opts.set_browser_path(self.firefox_path)
 
-        try:
-            self.page = FirefoxPage(opts)
-
-            driver = getattr(self.page, "_driver", None)
-            browser_driver = getattr(driver, "_browser_driver", None) if driver else None
-
-            logger.info(
-                f"[RuyiPageBrowser] Firefox 启动成功 "
-                f"worker={self.worker_id}, "
-                f"thread={threading.get_ident()}, "
-                f"page_id={id(self.page)}, "
-                f"proxy={proxy_server or '无'}, "
-                f"driver_ok={driver is not None}, "
-                f"browser_driver_ok={browser_driver is not None}"
-            )
-
-            if driver is None or browser_driver is None:
-                raise RuntimeError(
-                    f"[RuyiPageBrowser] FirefoxPage 初始化不完整: "
-                    f"driver={driver}, browser_driver={browser_driver}"
-                )
-
-        except Exception as e:
-            self.page = None
-            logger.exception(f"[RuyiPageBrowser] 浏览器初始化失败: {e}")
-            raise
+        self.page = FirefoxPage(opts)
+        logger.info(f"[RuyiPageBrowser] Firefox 启动成功，代理: {proxy_server or '无'}")
 
     # ── 导航 ──────────────────────────────────────────────────
     def goto(self, url: str, timeout: int = 30):
+        """
+        导航到指定 URL。
+
+        Args:
+            url:     目标 URL
+            timeout: 等待页面加载的最大秒数（ruyiPage 以秒为单位）
+        """
         self._require_page()
-
-        driver = getattr(self.page, "_driver", None)
-        browser_driver = getattr(driver, "_browser_driver", None) if driver else None
-        if driver is None or browser_driver is None:
-            raise RuntimeError(
-                "[RuyiPageBrowser] 页面对象存在，但底层浏览器 driver 未就绪"
-            )
-
         self.page.get(url, timeout=timeout)
 
     # ── Cookie 弹窗处理 ───────────────────────────────────────
