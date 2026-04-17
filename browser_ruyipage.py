@@ -81,7 +81,7 @@ class RuyiPageBrowser:
         self.proxies = proxies or {}
         self.headless = headless
         self.firefox_path = firefox_path
-
+        self.worker_id = worker_id
         self.page: FirefoxPage | None = None
 
     # ── 初始化 ────────────────────────────────────────────────
@@ -455,6 +455,7 @@ def search_keyword_batch(params):
         language_code=params.language_code,
         proxies=params.proxies,
         headless=False,
+        worker_id=params.worker_id,
         # firefox_path=r"D:\Firefox\firefox.exe",  # 非默认路径时取消注释
     )
 
