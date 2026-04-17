@@ -16,7 +16,6 @@ import json
 import time
 import random
 import datetime
-import gzip
 
 # Windows 控制台 UTF-8 兼容
 if sys.platform == "win32":
@@ -86,7 +85,6 @@ class RuyiPageBrowser:
         self.page: FirefoxPage | None = None
 
     # ── 初始化 ────────────────────────────────────────────────
-
     def initialize(self):
         """启动 Firefox，创建 FirefoxPage 实例。"""
         opts = FirefoxOptions()
@@ -105,7 +103,6 @@ class RuyiPageBrowser:
         logger.info(f"[RuyiPageBrowser] Firefox 启动成功，代理: {proxy_server or '无'}")
 
     # ── 导航 ──────────────────────────────────────────────────
-
     def goto(self, url: str, timeout: int = 30):
         """
         导航到指定 URL。
@@ -118,7 +115,6 @@ class RuyiPageBrowser:
         self.page.get(url, timeout=timeout)
 
     # ── Cookie 弹窗处理 ───────────────────────────────────────
-
     def handle_cookie_consent(self, timeout: float = 5.0) -> bool:
         """
         处理 Google Cookie 同意弹窗。
@@ -150,7 +146,6 @@ class RuyiPageBrowser:
         return False
 
     # ── 搜索输入 ──────────────────────────────────────────────
-
     def human_type_and_submit(self, keyword_item: dict, timeout: float = 10.0):
         """
         模拟真人输入关键词并按回车提交。
@@ -184,7 +179,6 @@ class RuyiPageBrowser:
         logger.info(f"[RuyiPageBrowser] 已提交搜索: {keyword}")
 
     # ── 滚动 ──────────────────────────────────────────────────
-
     def human_scroll(self, steps: int = 6):
         """
         分步滚动到页面底部，触发懒加载，模拟真人滚动行为。
@@ -248,6 +242,7 @@ class RuyiPageBrowser:
         random_sleep(0.5, 1.0)
 
         html = self.get_rendered_html()
+
         if not html:
             logger.warning(f"[RuyiPageBrowser] 未获取到页面 HTML，关键词: {keyword}")
             return {
@@ -258,14 +253,50 @@ class RuyiPageBrowser:
                 "related_items": [],
             }
 
+        new_datas = []
+        domains = []
+
         logger.info(f"[RuyiPageBrowser] 已获取渲染后 HTML，长度: {len(html)}")
+        result = demo_with_real_data(html)
+        # 收集数据
+        for item in result:
+            if item.get("site", ".jp").endswith('.jp'):
+                continue
+
+            new_data = {
+                "index": item.get("id"),
+                "word": item.get("title"),
+                "domain": item.get("site"),
+                "link": item.get("url"),
+                "image": item.get("image"),
+                "info": {
+                    "desc": item.get("desc"),
+                    "brand": item.get("brand"),
+                    "price": item.get("price"),
+                    "currency": item.get("currency"),
+                    "score": item.get("score"),
+                    "review": item.get("review"),
+                },
+                "parent": params.task_id,
+                "stat": -1,
+                "createdAt": str(datetime.datetime.now(datetime.timezone.utc))
+            }
+            new_datas.append(new_data)
+            domains.append(item.get("site"))
+
+        # 收集 related_search
+        related_search = get_related_search(html)
+
+        # 收集 related_items
+        related_items = get_related_items(html)
+
 
         return {
             "html": html,
-            "new_datas": [],
-            "domains": [],
-            "related_search": [],
-            "related_items": [],
+            "new_datas": new_datas,
+            "domains": domains,
+            "related_search": related_search,
+            "related_items": related_items,
         }
 
     def get_rendered_html(self) -> str:
@@ -281,160 +312,6 @@ class RuyiPageBrowser:
                 return self.page.run_js("return document.documentElement.outerHTML;") or ""
             except Exception:
                 return ""
-
-    def _decompress_and_decode(self, body_bytes: bytes, packet=None) -> str:
-        """根据响应头 Content-Encoding 解压并解码响应体"""
-        if not body_bytes:
-            return ""
-
-        # 从 packet.headers 判断编码方式
-        encoding = ""
-        if packet:
-            headers = getattr(packet, "headers", {}) or {}
-            encoding = headers.get("content-encoding", "").lower()
-
-        # 按编码方式解压
-        try:
-            if encoding == "br":
-                import brotli
-                body_bytes = brotli.decompress(body_bytes)
-            elif encoding in ("gzip", "x-gzip"):
-                import gzip
-                body_bytes = gzip.decompress(body_bytes)
-            elif encoding == "zstd":
-                import zstandard as zstd
-                body_bytes = zstd.ZstdDecompressor().decompress(body_bytes)
-            elif encoding == "deflate":
-                import zlib
-                try:
-                    body_bytes = zlib.decompress(body_bytes)
-                except zlib.error:
-                    body_bytes = zlib.decompress(body_bytes, -zlib.MAX_WBITS)
-            else:
-                # 没有明确编码，逐个尝试
-                for decompress_fn in [
-                    lambda b: __import__('brotli').decompress(b),
-                    lambda b: __import__('gzip').decompress(b),
-                    lambda b: __import__('zlib').decompress(b),
-                ]:
-                    try:
-                        body_bytes = decompress_fn(body_bytes)
-                        break
-                    except Exception:
-                        continue
-
-        except Exception as e:
-            logger.debug(f"[RuyiPageBrowser] 解压失败({encoding}): {e}，尝试直接解码")
-
-        # 解码为字符串
-        try:
-            return body_bytes.decode("utf-8")
-        except Exception:
-            return body_bytes.decode("utf-8", errors="ignore")
-
-    def _normalize_response_body(self, body) -> str:
-        """
-        把响应体统一转成 str，兼容 ruyiPage 返回 bytes 的场景。
-        """
-        if isinstance(body, str):
-            return body
-
-        if isinstance(body, bytes):
-            # 先尝试直接按 utf-8 解码（大多数 Google 响应可行）
-            try:
-                return body.decode("utf-8")
-            except UnicodeDecodeError:
-                pass
-
-            # 某些响应可能是 gzip 压缩
-            try:
-                return gzip.decompress(body).decode("utf-8", errors="ignore")
-            except Exception:
-                pass
-
-            # 最后兜底：宽松解码，尽量保留可解析内容
-            return body.decode("utf-8", errors="ignore")
-
-        return str(body)
-
-    def _extract_packet_body(self, packet):
-        """
-        从 ruyiPage 数据包中提取 body，兼容对象/字典两种结构。
-        """
-
-        body = getattr(packet, "body", None)
-        if body:
-            return body
-
-        response = getattr(packet, "response", None)
-        if isinstance(response, dict):
-            content = response.get("content")
-            if content:
-                return content
-
-        # 兜底：response["content"]
-        response = getattr(packet, "response", None)
-        if isinstance(response, dict):
-            return response.get("content") or response.get("body")
-
-        return None
-
-    def _extract_packet_url(self, packet) -> str:
-        """
-        从 ruyiPage 数据包中提取 url，兼容对象/字典两种结构。
-        """
-        url = getattr(packet, "url", None)
-        if url:
-            return str(url)
-
-        # 兜底：response dict
-        response = getattr(packet, "response", None)
-        if isinstance(response, dict):
-            return str(response.get("url", "") or "")
-
-        if isinstance(packet, dict):
-            return str(packet.get("url", "") or "")
-
-        return ""
-
-    def _is_target_search_url(self, url: str) -> bool:
-        """
-        只保留 Google 图片搜索结果相关请求，过滤静态资源和埋点请求。
-        """
-        if not url or "google.com/search" not in url:
-            return False
-        return any(token in url for token in ("udm=2", "tbm=isch", "async=", "asearch=arc"))
-
-    def _collect_packets(self, packets: list, timeout: float = 15):
-        """
-        循环调用 page.listen.wait() 收取所有当前可用的数据包，直到超时为止。
-
-        ruyiPage 的 wait() 签名：
-            wait(count=1, timeout=秒) -> DataPacket | None
-        每次返回一个包或 None（超时/无包）。
-        """
-        first_debug = True
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            remaining = deadline - time.time()
-            if remaining <= 0:
-                break
-            try:
-                # 每次等待最多 3s，拿到一个包就存起来继续循环
-                packet = self.page.listen.wait(count=1, timeout=min(3.0, remaining))
-                if packet is None:
-                    # 连续无包，说明当前没有新请求了，提前退出
-                    break
-                if first_debug:
-                    self._debug_packet_structure(packet)
-                    first_debug = False
-
-                url = self._extract_packet_url(packet)
-                if self._is_target_search_url(url):
-                    packets.append(packet)
-            except Exception as e:
-                logger.debug(f"[RuyiPageBrowser] wait() 异常: {e}")
-                break
 
     # ── 关闭 ──────────────────────────────────────────────────
 
@@ -455,43 +332,10 @@ class RuyiPageBrowser:
         if not self.page:
             raise RuntimeError("[RuyiPageBrowser] 浏览器未初始化，请先调用 initialize()")
 
-    def _debug_packet_structure(self, packet):
-        """临时调试：打印 packet 的完整结构"""
-        import inspect
-        logger.info(f"=== PACKET TYPE: {type(packet)} ===")
-        logger.info(f"PACKET.url = {getattr(packet, 'url', '<<NOT FOUND>>')}")
-        logger.info(f"PACKET.body = {repr(getattr(packet, 'body', '<<NOT FOUND>>'))[:200]}")
-
-        response = getattr(packet, 'response', None)
-        if isinstance(response, dict):
-            content = response.get('content')
-            logger.info(f"RESPONSE content type: {type(content)}, value: {repr(content)[:300]}")
-
-        # 如果是对象，打印所有属性
-        if not isinstance(packet, dict):
-            attrs = [a for a in dir(packet) if not a.startswith('__')]
-            logger.info(f"PACKET ATTRS: {attrs}")
-
-            response = getattr(packet, 'response', None)
-            if response:
-                logger.info(f"RESPONSE TYPE: {type(response)}")
-                if not isinstance(response, dict):
-                    r_attrs = [a for a in dir(response) if not a.startswith('__')]
-                    logger.info(f"RESPONSE ATTRS: {r_attrs}")
-                    # 尝试常见属性
-                    for k in ('body', 'text', 'content', 'raw', 'url', 'status'):
-                        val = getattr(response, k, '<<NOT FOUND>>')
-                        logger.info(f"  response.{k} = {repr(val)[:200]}")
-                else:
-                    logger.info(f"RESPONSE DICT KEYS: {list(response.keys())}")
-        else:
-            logger.info(f"PACKET DICT KEYS: {list(packet.keys())}")
-
 
 # ──────────────────────────────────────────────────────────────
 # 单关键词搜索
 # ──────────────────────────────────────────────────────────────
-
 def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, params, max_retries: int = 2):
     """
     搜索单个关键词。
