@@ -468,9 +468,7 @@ def search_keyword_batch(params):
         captcha_hit   = False
         processed     = 0
 
-        # while processed < params.datanum:
-        while processed < 1: # todo
-
+        while processed < params.datanum:
             db_task = _fetch_task_with_refill(db, params)
             if db_task is None:
                 logger.info(f"[Worker-{params.worker_id}] 补词后仍无任务，结束本批")

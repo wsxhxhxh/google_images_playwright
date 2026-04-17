@@ -116,8 +116,7 @@ def worker(worker_id: int, stop_event: threading.Event, db: DbManager,
            atm: TokenManager, app: ProxyPool):
     logger.info(f"[Worker-{worker_id}] 启动")
 
-    # while not stop_event.is_set():
-    for i in range(1):
+    while not stop_event.is_set():
         pending = db.get_pending_count()
         if pending == 0:
             logger.info(f"SQLite 暂无任务，等待 10s")
