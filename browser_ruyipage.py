@@ -1,3 +1,4 @@
+# browser_ruyipage.py
 # -*- coding: utf-8 -*-
 """
 谷歌图片搜索脚本 —— ruyiPage 版本
