@@ -370,7 +370,7 @@ class RuyiPageBrowser:
         textarea.input(keyword)
         random_sleep(0.1, 0.2)
         # 回车搜索
-        textarea.press(Keys.ENTER)
+        self.page.actions.key_down(Keys.ENTER).key_up(Keys.ENTER).perform()
         random_sleep(0.1, 0.2)
 
         # 搜索后再检查验证码
