@@ -317,22 +317,62 @@ class RuyiPageBrowser:
         random_sleep(0.3, 0.8)
 
     # ── 搜索主流程 ────────────────────────────────────────────
-    def search_and_get_html(self, keyword_item: dict, params) -> dict | None:
+    def search_and_get_html(self, keyword_item: dict, params, first_run: bool = False) -> dict | None:
         self._require_page()
         keyword = keyword_item["name"]
 
-        self.goto(f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl")
-        random_sleep(0.5, 1.0)
+        # 只有第一次才打开 Google 图片首页
+        if first_run:
+            self.goto(
+                f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl"
+            )
+            random_sleep(0.5, 1.0)
 
+            current_url = self.page.url
+            if "/sorry/" in current_url or "sorry" in current_url:
+                logger.warning(f"[Worker-{self.worker_id}] 检测到验证页面: {current_url}")
+                return None
+
+            self.handle_cookie_consent()
+
+        # 每次都检查是否已经跳验证码
         current_url = self.page.url
         if "/sorry/" in current_url or "sorry" in current_url:
-            logger.warning(f"[Worker-{self.worker_id}] 检测到验证页面: {current_url}")
+            logger.warning(f"[Worker-{self.worker_id}] 当前已进入验证页面: {current_url}")
             return None
 
-        self.handle_cookie_consent()
-        self.human_type_and_submit(keyword_item)
+        # 优先使用 name=q，更稳定
+        textarea = (
+                self.page.ele("css:textarea.gLFyf", timeout=3)
+                or self.page.ele("css:input[name='q']", timeout=3)
+        )
+
+        if not textarea:
+            raise RuntimeError(
+                f"[Worker-{self.worker_id}] 找不到搜索框，关键词: {keyword}"
+            )
+
+        # 点击输入框
+        textarea.click()
+        random_sleep(0.2, 0.4)
+
+        # 全选 + 删除
+        self.page.actions.key_down(Keys.CONTROL).send_keys("a").key_up(Keys.CONTROL).perform()
+        random_sleep(0.1, 0.2)
+
+        self.page.actions.send_keys(Keys.BACKSPACE).perform()
+        random_sleep(0.2, 0.4)
+
+        # 输入关键词（模拟真人）
+        self.page.actions.send_keys(keyword).perform()
+        random_sleep(0.3, 0.6)
+
+        # 回车搜索
+        self.page.actions.key_down(Keys.ENTER).key_up(Keys.ENTER).perform()
+
         random_sleep(1.0, 1.8)
 
+        # 搜索后再检查验证码
         current_url = self.page.url
         if "/sorry/" in current_url or "sorry" in current_url:
             logger.warning(f"[Worker-{self.worker_id}] 搜索后检测到验证页面: {current_url}")
@@ -354,44 +394,46 @@ class RuyiPageBrowser:
             }
 
         new_datas = []
-        domains   = []
+        domains = []
 
         logger.info(f"[Worker-{self.worker_id}] 已获取渲染后 HTML，长度: {len(html)}")
         result = demo_with_real_data(html)
 
         for item in result:
-            if item.get("site", ".jp").endswith('.jp'):
+            if item.get("site", ".jp").endswith(".jp"):
                 continue
+
             new_data = {
-                "index":    item.get("id"),
-                "word":     item.get("title"),
-                "domain":   item.get("site"),
-                "link":     item.get("url"),
-                "image":    item.get("image"),
+                "index": item.get("id"),
+                "word": item.get("title"),
+                "domain": item.get("site"),
+                "link": item.get("url"),
+                "image": item.get("image"),
                 "info": {
-                    "desc":     item.get("desc"),
-                    "brand":    item.get("brand"),
-                    "price":    item.get("price"),
+                    "desc": item.get("desc"),
+                    "brand": item.get("brand"),
+                    "price": item.get("price"),
                     "currency": item.get("currency"),
-                    "score":    item.get("score"),
-                    "review":   item.get("review"),
+                    "score": item.get("score"),
+                    "review": item.get("review"),
                 },
-                "parent":    params.task_id,
-                "stat":      -1,
+                "parent": params.task_id,
+                "stat": -1,
                 "createdAt": str(datetime.datetime.now(datetime.timezone.utc)),
             }
+
             new_datas.append(new_data)
             domains.append(item.get("site"))
 
         related_search = get_related_search(html)
-        related_items  = get_related_items(html)
+        related_items = get_related_items(html)
 
         return {
-            "html":           html,
-            "new_datas":      new_datas,
-            "domains":        domains,
+            "html": html,
+            "new_datas": new_datas,
+            "domains": domains,
             "related_search": related_search,
-            "related_items":  related_items,
+            "related_items": related_items,
         }
 
     def get_rendered_html(self) -> str:
@@ -443,18 +485,15 @@ class RuyiPageBrowser:
 # ──────────────────────────────────────────────────────────────
 # 单关键词搜索
 # ──────────────────────────────────────────────────────────────
-
-def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, params, max_retries: int = 2):
-    """
-    搜索单个关键词。
-
-    Returns:
-        True  — 成功
-        False — 失败（已重试完）
-        None  — 代理 / 验证码失败，需要换代理
-    """
-    keyword      = keyword_item["name"]
-    keyid        = keyword_item["id"]
+def search_single_keyword(
+    browser: RuyiPageBrowser,
+    keyword_item: dict,
+    params,
+    first_run: bool = False,
+    max_retries: int = 2,
+):
+    keyword = keyword_item["name"]
+    keyid = keyword_item["id"]
     proxy_server = (params.proxies or {}).get("server", "")
 
     for attempt in range(max_retries):
@@ -464,7 +503,11 @@ def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, params, 
                 f"开始搜索（尝试 {attempt + 1}/{max_retries}）"
             )
 
-            aggregated_data = browser.search_and_get_html(keyword_item, params)
+            aggregated_data = browser.search_and_get_html(
+                keyword_item,
+                params,
+                first_run=first_run,
+            )
 
             if aggregated_data is None:
                 special_logger.info(
@@ -480,71 +523,39 @@ def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, params, 
                     f"处理 {len(aggregated_data['new_datas'])} 条数据"
                 )
 
-                products         = deal_info(aggregated_data["new_datas"], params)
+                products = deal_info(aggregated_data["new_datas"], params)
                 shopify_products = deal_shopify_product_info(params, products)
 
                 google_item = {
-                    "id":           keyid,
+                    "id": keyid,
                     "use_proxy_ip": proxy_server,
-                    "from":         proxy_server.replace("socks5://", "").split(":")[0],
-                    "word":         keyword,
-                    "script":       "",
-                    "domains":      json.dumps(aggregated_data["domains"]),
-                    "related":      json.dumps(aggregated_data["related_search"]),
-                    "items":        json.dumps(aggregated_data["related_items"]),
-                    "products":     json.dumps(products),
+                    "from": proxy_server.replace("socks5://", "").split(":")[0],
+                    "word": keyword,
+                    "script": "",
+                    "domains": json.dumps(aggregated_data["domains"]),
+                    "related": json.dumps(aggregated_data["related_search"]),
+                    "items": json.dumps(aggregated_data["related_items"]),
+                    "products": json.dumps(products),
                 }
 
                 if products:
                     send_items_to_api(params, google_item)
+
                 if shopify_products:
                     send_shopify_product_to_api(params, shopify_products)
 
-                logger.info(f"[Worker-{params.worker_id}][{keyword}] 数据上报完成")
-            else:
-                logger.warning(f"[Worker-{params.worker_id}][{keyword}] 没有收集到任何数据")
-
-            special_logger.info(
-                f"[work-{params.worker_id}][{params.task_id}][{keyword}] "
-                f"{params.proxies['server']} success"
-            )
             params.app.set_success(params.atm, params.proxies)
             return True
 
         except Exception as e:
-            logger.exception(
-                f"[Worker-{params.worker_id}][{keyword}] "
-                f"搜索异常（尝试 {attempt + 1}/{max_retries}）: {e}"
-            )
-            error_msg = str(e)
-            if any(err in error_msg for err in [
-                "ERR_PROXY_CONNECTION_FAILED",
-                "ERR_TUNNEL_CONNECTION_FAILED",
-                "ERR_SOCKS_CONNECTION_FAILED",
-                "ERR_CONNECTION_REFUSED",
-                "ERR_CONNECTION_TIMED_OUT",
-                "net::ERR_",
-                "ProxyError",
-                "proxy",
-            ]):
-                special_logger.info(
-                    f"[work-{params.worker_id}][{params.task_id}][{keyword}] "
-                    f"{proxy_server or 'unknown_proxy'} ERR_PROXY_OR_NETWORK"
-                )
-                params.app.set_fail(params.atm, params.proxies)
-                return None
+            logger.exception(f"搜索异常: {e}")
 
             if attempt < max_retries - 1:
                 time.sleep(3)
             else:
-                logger.error(
-                    f"[Worker-{params.worker_id}][{keyword}] "
-                    f"已达最大重试次数，跳过"
-                )
                 return False
 
     return False
-
 
 # ──────────────────────────────────────────────────────────────
 # 批量搜索
@@ -589,29 +600,52 @@ def search_keyword_batch(params):
         captcha_hit   = False
         processed     = 0
 
+        first_run = True
         while processed < params.datanum:
             db_task = _fetch_task_with_refill(db, params)
+
             if db_task is None:
                 logger.info(f"[Worker-{params.worker_id}] 补词后仍无任务，结束本批")
                 break
 
             keyword_item = {
-                "id":   db_task["keyword_id"],
+                "id": db_task["keyword_id"],
                 "name": db_task["keyword"],
             }
+
             logger.info(f"[Worker-{params.worker_id}] 开始搜索: {keyword_item['name']}")
 
-            success = search_single_keyword(browser, keyword_item, params)
+            success = search_single_keyword(
+                browser,
+                keyword_item,
+                params,
+                first_run=first_run,
+            )
+
+            # 第一次执行完后，以后都复用页面
+            first_run = False
+
             processed += 1
 
             if success is True:
                 db.mark_success(db_task["id"])
                 success_count += 1
+
             elif success is None:
                 db.mark_failed(db_task["id"])
-                logger.warning(f"[Worker-{params.worker_id}] 验证码或代理失败，结束本批")
+                logger.warning(
+                    f"[Worker-{params.worker_id}] 验证码或代理失败，立即关闭浏览器"
+                )
+
                 captcha_hit = True
+
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+
                 break
+
             else:
                 db.mark_failed(db_task["id"])
                 fail_count += 1
