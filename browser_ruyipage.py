@@ -356,21 +356,22 @@ class RuyiPageBrowser:
         textarea.click()
         random_sleep(0.2, 0.4)
 
-        # 全选 + 删除
-        self.page.actions.key_down(Keys.CONTROL).send_keys("a").key_up(Keys.CONTROL).perform()
+        # 清空输入框（最稳）
+        try:
+            textarea.clear()
+        except:
+            # fallback
+            self.page.run_js("""
+                let el = document.querySelector('textarea.gLFyf') || document.querySelector('input[name="q"]');
+                if (el) el.value = '';
+            """)
         random_sleep(0.1, 0.2)
-
-        self.page.actions.send_keys(Keys.BACKSPACE).perform()
-        random_sleep(0.2, 0.4)
-
-        # 输入关键词（模拟真人）
-        self.page.actions.send_keys(keyword).perform()
-        random_sleep(0.3, 0.6)
-
+        # 输入关键词（ruyipage原生）
+        textarea.input(keyword)
+        random_sleep(0.1, 0.2)
         # 回车搜索
-        self.page.actions.key_down(Keys.ENTER).key_up(Keys.ENTER).perform()
-
-        random_sleep(1.0, 1.8)
+        textarea.press(Keys.ENTER)
+        random_sleep(0.1, 0.2)
 
         # 搜索后再检查验证码
         current_url = self.page.url
