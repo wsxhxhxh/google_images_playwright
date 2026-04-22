@@ -120,8 +120,17 @@ def worker(worker_id: int, stop_event: threading.Event, db: DbManager,
         while not stop_event.is_set():
             pending = db.get_pending_count()
             if pending == 0:
-                logger.info(f"SQLite 暂无任务，等待 10s")
-                stop_event.wait(10)
+                logger.info(f"[Worker-{worker_id}] SQLite 暂无任务，尝试补词...")
+                try:
+                    if db.fetch_func:
+                        db.fetch_func()
+                except Exception as exc:
+                    logger.exception(f"[Worker-{worker_id}] 空队列补词失败: {exc}")
+
+                pending = db.get_pending_count()
+                if pending == 0:
+                    logger.info(f"[Worker-{worker_id}] 补词后仍无任务，等待 10s")
+                    stop_event.wait(10)
                 continue
 
             task_info = get_current_task_info_snapshot()
