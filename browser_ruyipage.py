@@ -516,7 +516,6 @@ def search_single_keyword(
                     f"[work-{params.worker_id}][{params.task_id}][{keyword}] "
                     f"{params.proxies['server']} Verification code"
                 )
-                params.app.set_fail(params.atm, params.proxies)
                 return None
 
             if aggregated_data["new_datas"]:
@@ -634,6 +633,7 @@ def search_keyword_batch(params):
                 success_count += 1
 
             elif success is None:
+                params.app.set_fail(params.atm, params.proxies)
                 db.mark_failed(db_task["id"])
                 logger.warning(
                     f"[Worker-{params.worker_id}] 验证码或代理失败，立即关闭浏览器"
@@ -649,6 +649,7 @@ def search_keyword_batch(params):
                 break
 
             else:
+                params.app.set_fail(params.atm, params.proxies)
                 db.mark_failed(db_task["id"])
                 fail_count += 1
 
