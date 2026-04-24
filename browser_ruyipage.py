@@ -512,6 +512,7 @@ def search_single_keyword(
             )
 
             if aggregated_data is None:
+                params.app.set_fail(params.atm, params.proxies)
                 special_logger.info(
                     f"[work-{params.worker_id}][{params.task_id}][{keyword}] "
                     f"{params.proxies['server']} Verification code"
@@ -541,6 +542,7 @@ def search_single_keyword(
 
                 if products:
                     send_items_to_api(params, google_item)
+                    special_logger.info(f"[work-{params.worker_id}][{params.task_id}][{keyword}] {params.proxies['server']} success")
 
                 if shopify_products:
                     send_shopify_product_to_api(params, shopify_products)
@@ -633,7 +635,6 @@ def search_keyword_batch(params):
                 success_count += 1
 
             elif success is None:
-                params.app.set_fail(params.atm, params.proxies)
                 db.mark_failed(db_task["id"])
                 logger.warning(
                     f"[Worker-{params.worker_id}] 验证码或代理失败，立即关闭浏览器"
@@ -649,7 +650,6 @@ def search_keyword_batch(params):
                 break
 
             else:
-                params.app.set_fail(params.atm, params.proxies)
                 db.mark_failed(db_task["id"])
                 fail_count += 1
 
