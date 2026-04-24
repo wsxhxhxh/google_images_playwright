@@ -235,4 +235,5 @@ class Config:
     PROXY_URL: str = os.getenv("PROXY_URL", "")
     PROXY_STATUS = 'https://seosystem.top/prod/api/v1/proxy-group-ips/{id}/status'
     TASK_NUM: int = int(os.getenv("TASK_NUM", "10"))
+    HEADLESS: bool = bool(os.getenv("HEADLESS", "False").lower() == "true")
 

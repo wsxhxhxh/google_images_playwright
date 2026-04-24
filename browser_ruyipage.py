@@ -583,7 +583,7 @@ def search_keyword_batch(params):
     browser = RuyiPageBrowser(
         language_code=params.language_code,
         proxies=params.proxies,
-        headless=False,
+        headless=Config.HEADLESS,
         worker_id=params.worker_id,
         # firefox_path=r"D:\Firefox\firefox.exe",  # 非默认路径时取消注释
     )
