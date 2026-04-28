@@ -1,6 +1,9 @@
 # platform_api.py
 import json
+import threading
 import time
+import ssl
+import requests
 import asyncio
 import traceback
 from typing import Optional, Dict
@@ -10,112 +13,149 @@ import aiohttp
 from config import logger, Config
 
 
-class AsyncTokenManager:
+_TLS_VERIFY = False  # 等效原代码 ssl=False
+_TLS_TIMEOUT = 10
+_SSL_CONTEXT = ssl._create_unverified_context()
+_thread_local = threading.local()
+
+def _get_session() -> requests.Session:
+    sess = getattr(_thread_local, "session", None)
+    if sess is None:
+        sess = requests.Session()
+        _thread_local.session = sess
+    return sess
+
+def _request_text(
+    method: str,
+    url: str,
+    *,
+    headers=None,
+    data=None,
+    json_data=None,
+    timeout: int = _TLS_TIMEOUT,
+) -> str:
+    """
+    requests 统一封装：对 data 使用表单编码，对 json_data 使用 json=。
+    统一加 headers，解决部分接口对 User-Agent/Content-Type 敏感导致 403 的问题。
+    """
+    req_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+        "Accept": "*/*",
+        "Connection": "keep-alive",
+    }
+    if headers:
+        req_headers.update(headers)
+
+    sess = _get_session()
+    try:
+        if json_data is not None:
+            resp = sess.request(
+                method=method.upper(),
+                url=url,
+                headers=req_headers,
+                json=json_data,
+                timeout=timeout,
+                verify=_TLS_VERIFY,
+            )
+        else:
+            # data 走表单
+            resp = sess.request(
+                method=method.upper(),
+                url=url,
+                headers=req_headers,
+                data=data,
+                timeout=timeout,
+                verify=_TLS_VERIFY,
+            )
+        text = resp.text if resp.text is not None else ""
+        if resp.status_code >= 400:
+            snippet = text[:200].replace("\n", " ").replace("\r", " ")
+            logger.warning(f"[HTTP] {method.upper()} {url} -> {resp.status_code} resp_snippet={snippet!r}")
+            raise RuntimeError(f"HTTP {resp.status_code} Forbidden/Request failed for {url}: {snippet}")
+        return text
+    except requests.RequestException as exc:
+        # 兼容上层原逻辑：抛出异常交给调用方处理
+        raise
+
+
+
+class TokenManager:
     def __init__(self, token_expire_seconds: int = 3600 * 36):
         self._token: Optional[str] = None
         self._expire_time: float = 0
-        self._lock = asyncio.Lock()
+        self._lock = threading.Lock()
         self._token_expire_seconds = token_expire_seconds
         self.apikey = "5a11020697da4aceba7e011fc0370185"
         self._url = "https://seosystem.top/prod/api/v1/token"
 
-    async def _fetch_new_token(self) -> str:
-        """异步获取新token - 每次创建新 session"""
-        connector = aiohttp.TCPConnector(
-            limit=100,
-            limit_per_host=20,
-            ssl=False
-        )
+    def _fetch_new_token(self) -> str:
+        text = _request_text("POST", self._url, data={"apikey": self.apikey}, timeout=10)
+        resp_json = json.loads(text)
+        return resp_json["data"]["token"]
 
-        # ✅ 创建临时 session，用完自动关闭
-        async with aiohttp.ClientSession(connector=connector) as session:
-            data = {"apikey": self.apikey}
-            async with session.post(self._url, data=data, ssl=False) as resp:
-                text = await resp.text()
-                resp_json = json.loads(text)
-                token = resp_json["data"]["token"]
-                return token
-
-    async def get_token(self) -> str:
-        """获取 token，如果过期则刷新"""
-        async with self._lock:
+    def get_token(self) -> str:
+        with self._lock:
             now = time.time()
             if not self._token or now >= self._expire_time:
-                self._token = await self._fetch_new_token()
+                self._token = self._fetch_new_token()
                 self._expire_time = now + self._token_expire_seconds
             return self._token
 
-    async def refresh_token(self) -> str:
-        """主动刷新 token"""
-        async with self._lock:
-            self._token = await self._fetch_new_token()
+    def refresh_token(self) -> str:
+        with self._lock:
+            self._token = self._fetch_new_token()
             self._expire_time = time.time() + self._token_expire_seconds
             return self._token
 
-class AsyncProxyPool:
 
+class ProxyPool:
     def __init__(self):
         self.pool = []
-        self.lock = asyncio.Lock()
-        self.session = None
+        self.lock = threading.Lock()
 
-    async def close(self):
-        await self.session.close()
-
-    async def safe_request(self, method, url, **kwargs):
-        if not self.session:
-            self.session = aiohttp.ClientSession()
+    def safe_request(self, method, url, **kwargs):
         try:
-            async with self.session.request(method, url, **kwargs) as resp:
-                return await resp.text()
+            return _request_text(method, url, **kwargs)
+        except requests.RequestException as exc:
+            logger.warning(f"request error: {exc}, retrying...")
+            return _request_text(method, url, **kwargs)
 
-        except aiohttp.ClientError as e:
-            logger.warning(f"request error: {e}, retrying...")
-
-            # 重新创建 session
-            await self.session.close()
-            self.session = aiohttp.ClientSession()
-
-            async with self.session.request(method, url, **kwargs) as resp:
-                return await resp.text()
-
-    async def refresh_pool(self):
-        url = Config.PROXY_URL
-        text = await self.safe_request("GET", url)
+    def refresh_pool(self):
+        if not Config.PROXY_URL:
+            self.pool = []
+            return
+        text = self.safe_request("GET", Config.PROXY_URL, timeout=10)
         resp_json = json.loads(text)
         logger.info(f"refresh local proxy pool, num: {len(resp_json)}")
         self.pool = resp_json
 
-    async def get_random_proxy(self):
-
-        async with self.lock:
-
+    def get_random_proxy(self):
+        with self.lock:
             if not self.pool:
-                await self.refresh_pool()
-
+                self.refresh_pool()
             if not self.pool:
                 return None
-
             proxy = self.pool.pop()
 
         proxy["server"] = f"socks5://{proxy['ip']}:{proxy['port']}"
         return proxy
 
-    async def set_proxy_status(self, atm, proxy, status):
-        url = Config.PROXY_STATUS.format(id=proxy['id'])
-        token = await atm.get_token()
+    def set_proxy_status(self, atm, proxy, status):
+        url = Config.PROXY_STATUS.format(id=proxy["id"])
+        token = atm.get_token()
         data = {"status": status, "token": token}
         headers = {"Authorization": f"Bearer {token}"}
-        text = await self.safe_request("POST", url, data=data, headers=headers)
+        text = self.safe_request("POST", url, data=data, headers=headers, timeout=10)
         logger.info(text)
 
-    async def set_success(self, atm, proxy: Dict):
+    def set_success(self, atm, proxy: Dict):
         logger.info(f"send proxy success: {proxy['server']}")
-        await self.set_proxy_status(atm, proxy, 1)
+        self.set_proxy_status(atm, proxy, 1)
 
-    async def set_fail(self, atm, proxy: Dict) -> None:
+    def set_fail(self, atm, proxy: Dict) -> None:
         logger.info(f"send proxy failed: {proxy['server']}")
-        await self.set_proxy_status(atm, proxy, 2)
+        self.set_proxy_status(atm, proxy, 2)
+
 
 async def get_task_info(atm, session):
     """获取任务信息"""
