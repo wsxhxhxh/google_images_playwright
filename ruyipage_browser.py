@@ -426,14 +426,14 @@ def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, params, 
 
             # 尝试获取收录数
             try:
-                text = browser.page.ele("#result-stats").text()
-                text = text.replace("About", "").strip()
+                text = browser.page.ele("css:#result-stats").text
+                text = text.replace("About", " ").replace("results", " ").strip()
                 keyword_item["included_count"] = int(text.split()[0].replace(",", ""))
                 keyword_item["status"] = 2 if keyword_item["included_count"] >= 4 else 0
             except Exception:
                 keyword_item["included_count"] = 0
                 keyword_item["status"] = 0
-
+            print(keyword_item)
             logger.info(f"[Success] 完成关键词: {keyword}")
             params.app.set_success(params.atm, params.proxies)
             return True
@@ -544,23 +544,4 @@ def search_keyword_batch(params):
                 browser.close()
             except Exception as e:
                 logger.error(f"关闭浏览器失败: {e}")
-
-if __name__ == '__main__':
-    from platform_api import ProxyPool, TokenManager
-
-    app = ProxyPool()
-    atm = TokenManager()
-    atm.refresh_token()
-
-    class A:
-        language_code = "en-US"
-        proxies = None
-        atm = atm
-        app = app
-        worker_id = 1
-
-    params = A()
-
-    browser = init_browse(params)
-
 
