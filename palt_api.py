@@ -185,8 +185,8 @@ def test():
     task = get_task_info(atm)
     print(task)
     #
-    # await send_task_status(atm, session, 12, 2)
-    #
+    send_task_status(atm, 30, 2)
+
     # task = await get_task_info(atm, session)
     # print(task)
 
