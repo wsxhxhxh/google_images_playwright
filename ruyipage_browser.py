@@ -431,6 +431,8 @@ def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, params, 
                 params,
                 first_run=first_run,
             )
+            if not html:
+                return None
             time.sleep(random.uniform(0.5, 1.0))
 
             html_content = browser.get_rendered_html()
