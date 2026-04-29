@@ -207,6 +207,8 @@ class RuyiPageBrowser:
     def goto(self, url: str, timeout: int = 30):
         self._require_page()
         self.page.get(url, timeout=timeout)
+        time.sleep(1)
+
 
     # ── Cookie 弹窗处理 ───────────────────────────────────────
     def handle_cookie_consent(self, timeout: float = 5.0) -> bool:
@@ -393,6 +395,20 @@ class RuyiPageBrowser:
             )
 
 
+def go_to_page(browser, page_num):
+    page = browser.page
+    page.run_js("window.scrollTo(0, document.body.scrollHeight)")
+    time.sleep(0.5)
+    items = page.eles("css:td.NKTSme a.fl")
+
+    for item in items:
+        if item.text.strip() == str(page_num):
+            item.click_self()
+            break
+
+    # 等页面真正刷新
+    page.ele("css:#search", timeout=10)
+
 
 
 # ---------- 单关键词搜索 ----------
@@ -419,6 +435,10 @@ def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, params, 
 
             html_content = browser.get_rendered_html()
 
+            if '- did not match any documents.' in html_content:
+                keyword_item["included_count"] = 0
+                keyword_item["status"] = 0
+
             # 判断是否日本相关
             is_jp = contains_japanese_kana(html_content)
             if is_jp:
@@ -429,11 +449,41 @@ def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, params, 
                 text = browser.page.ele("css:#result-stats").text
                 text = text.replace("About", " ").replace("results", " ").strip()
                 keyword_item["included_count"] = int(text.split()[0].replace(",", ""))
-                keyword_item["status"] = 2 if keyword_item["included_count"] >= 4 else 0
-            except Exception:
+                keyword_item["status"] = 2
+            except Exception as e:
+                print(e)
                 keyword_item["included_count"] = 0
                 keyword_item["status"] = 0
+
+            if keyword_item["included_count"] < 4:
+                keyword_item["status"] = 0
+                if keyword_item.get("query_result"):
+                    keyword_item["query_result"]["err_msg"] = "谷歌收录小于4"
+                else:
+                    keyword_item["query_result"] = {"err_msg": "谷歌收录小于4"}
+
+            title = keyword_item.get("domain_title")
+            is_jp = contains_japanese_kana(title)
+
+            if not is_jp:
+                html_content = browser.get_rendered_html()
+                is_jp = contains_japanese_kana(html_content)
+
+            if not is_jp:
+                go_to_page(browser, 5)
+                html_content = browser.get_rendered_html()
+                is_jp = contains_japanese_kana(html_content)
+
+            if not is_jp:
+                go_to_page(browser, 10)
+                html_content = browser.get_rendered_html()
+                is_jp = contains_japanese_kana(html_content)
+
+            if is_jp:
+                keyword_item["domain_type"] = 2
+
             print(keyword_item)
+
             logger.info(f"[Success] 完成关键词: {keyword}")
             params.app.set_success(params.atm, params.proxies)
             return True
@@ -544,4 +594,26 @@ def search_keyword_batch(params):
                 browser.close()
             except Exception as e:
                 logger.error(f"关闭浏览器失败: {e}")
+
+if __name__ == '__main__':
+    from platform_api import ProxyPool, TokenManager
+
+    app = ProxyPool()
+    atm = TokenManager()
+    atm.refresh_token()
+
+    class A:
+        language_code = "en-US"
+        proxies = None
+        atm = atm
+        app = app
+        worker_id = 1
+
+    params = A()
+
+    browser = init_browse(params)
+
+    search_single_keyword(browser, {"domain": "baidu.com", "domain_title": "baidu"}, params, True)
+    search_single_keyword(browser, {"domain": "bing.com", "domain_title": "bing"}, params, False)
+    search_single_keyword(browser, {"domain": "google.com", "domain_title": "google"}, params, False)
 
