@@ -4,7 +4,7 @@ import asyncio
 from palt_api import get_task_info, send_result_batch, send_task_status, fetch_domain_by_task_id
 from platform_api import TokenManager, ProxyPool
 from link114 import get_link_114_info
-from playwright_async_fixed import search_keyword_batch
+from ruyipage_browser import search_keyword_batch
 from dataclasses import dataclass
 from typing import Dict, List
 import requests

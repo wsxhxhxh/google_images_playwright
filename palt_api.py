@@ -201,7 +201,8 @@ def test():
     # } for i in range(300, 400)]
     items = [{
         "id": 1399,
-        "status": 1,
+        "status": 2,
+        "domain_type": 2,
         "query_result": {
             # "create": None,
             # "err_msg": "谷歌收录小于4"
