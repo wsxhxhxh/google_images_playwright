@@ -7,6 +7,7 @@ from link114 import get_link_114_info
 from ruyipage_browser import search_keyword_batch
 from dataclasses import dataclass
 from typing import Dict, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 
 def is_ok_site(domain):
@@ -91,10 +92,27 @@ def main():
                 print("not domain break")
                 break
 
-            site_status_result = [
-                domain_work(domain_info)
-                for domain_info in domain_info_list
-            ]
+            site_status_result = []
+            with ThreadPoolExecutor(max_workers=20) as executor:
+                futures = [
+                    executor.submit(domain_work, domain_info)
+                    for domain_info in domain_info_list
+                ]
+
+                for future in as_completed(futures):
+                    try:
+                        result = future.result()
+                        site_status_result.append(result)
+                    except Exception as e:
+                        print("任务异常:", e)
+
+            print("全部任务完成")
+
+
+            # site_status_result = [
+            #     domain_work(domain_info)
+            #     for domain_info in domain_info_list
+            # ]
 
             status_not_200 = [s for s in site_status_result if s["status"] == 0]
             status_200 = [s for s in site_status_result if s["status"] == 3]
