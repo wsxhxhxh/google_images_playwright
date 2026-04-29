@@ -97,7 +97,7 @@ async def get_link_114_info(domains):
     await asyncio.sleep(0.5)
     await page.locator('#tj').click()
 
-    for i in range(len(domains_list) * 2):
+    for i in range(len(domains_list) * 2 + 5):
         await asyncio.sleep(1)
 
     try:
