@@ -565,6 +565,7 @@ def search_keyword_batch(params):
             if success:
                 success_count += 1
             elif success is None:
+                first_run = True
                 logger.warning(f"检测到验证页面，立即关闭浏览器并退出")
                 tasks.insert(0, keyword_item_str)  # 用insert(0)而不是append，保持顺序
 
