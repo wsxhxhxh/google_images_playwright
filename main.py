@@ -10,6 +10,9 @@ from typing import Dict, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 def is_ok_site(domain):
 
     if not domain.startswith(('http://', 'https://')):
