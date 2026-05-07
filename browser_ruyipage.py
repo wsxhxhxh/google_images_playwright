@@ -71,7 +71,7 @@ BASE_PORT = 9300
 # 每个 worker 的 user_dir 根目录（子目录按 worker_id 命名）
 # 例：C:\ruyipage_workers\worker_0\，worker_1\，…
 USER_DIR_ROOT = r"C:\ruyipage_workers"
-
+TARGET_PREFIX = "https://www.google.com/search?vet="
 # 启动错开延迟（秒）：worker_id * STAGGER_SEC
 # 防止多个 Firefox 同时启动时抢占 OS 资源导致初始化失败
 # 调小可加快启动速度，调大更稳定
@@ -425,6 +425,48 @@ class RuyiPageBrowser:
 
         related_search = get_related_search(html)
         related_items = get_related_items(html)
+
+        self.page.listen.start(TARGET_PREFIX)
+
+        print("[3] 向下滚动，尝试触发更多 /search 请求...")
+        for i in range(5):
+            self.page.actions.scroll(0, 12000).perform()
+            packet = self.page.listen.wait(timeout=1)
+            if not packet:
+                print(f"   - 第 {i + 1} 次滚动后未捕获新包")
+                continue
+
+            print(f"   - 第 {i + 1} 次滚动命中: [{packet.status}] {packet.url}")
+            text = packet.text
+            result = demo_with_real_data(text)
+            for item in result:
+                if item.get("site", ".jp").endswith(".jp"):
+                    continue
+
+                new_data = {
+                    "index": item.get("id"),
+                    "word": item.get("title"),
+                    "domain": item.get("site"),
+                    "link": item.get("url"),
+                    "image": item.get("image"),
+                    "info": {
+                        "desc": item.get("desc"),
+                        "brand": item.get("brand"),
+                        "price": item.get("price"),
+                        "currency": item.get("currency"),
+                        "score": item.get("score"),
+                        "review": item.get("review"),
+                    },
+                    "parent": params.task_id,
+                    "stat": -1,
+                    "createdAt": str(datetime.datetime.now(datetime.timezone.utc)),
+                }
+
+                new_datas.append(new_data)
+                domains.append(item.get("site"))
+            if text:
+                break
+            print("     该包无可读文本，继续滚动...")
 
         return {
             "html": html,
