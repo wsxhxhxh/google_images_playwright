@@ -250,7 +250,8 @@ def send_items_to_api(*args):
     logger.info(f"send items {params.dbname} to API use {time.time() - start_time:.2f} seconds")
 
 
-def send_err_task(params, tasks):
+
+def send_keyword_status(params, tasks, status):
     if not tasks:
         logger.info(f"[Work-{params.worker_id}] 没有错误任务需要发送")
         return True
@@ -260,7 +261,7 @@ def send_err_task(params, tasks):
         t = json.loads(task)
         ids.append(t["id"])
 
-    data = {"keyword_ids": ids, "status": 0}
+    data = {"keyword_ids": ids, "status": status}
     headers = {
         "User-Agent": "Apifox/1.0.0 (https://apifox.com)",
         "Content-Type": "application/json",
@@ -280,6 +281,11 @@ def send_err_task(params, tasks):
         logger.exception(f"[Work-{params.worker_id}] 发送错误任务异常: {exc}")
         return False
 
+def send_err_task(params, tasks):
+    send_keyword_status(params, tasks, 0)
+
+def send_success_task(params, tasks):
+    send_keyword_status(params, tasks, 3)
 
 def update_task_status(atm, session, task_id):
     token = atm.get_token()

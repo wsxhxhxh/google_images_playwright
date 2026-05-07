@@ -56,7 +56,7 @@ from ruyipage import launch, Keys
 from config import Config, logger, special_logger
 from deal_product_func_async import deal_info, deal_shopify_product_info
 from parsel_json_str import demo_with_real_data, get_related_search, get_related_items
-from platform_api import send_items_to_api, send_shopify_product_to_api
+from platform_api import send_items_to_api, send_shopify_product_to_api, send_success_task
 from dblocal import DbManager
 
 
@@ -539,7 +539,8 @@ def search_single_keyword(
                 if products:
                     send_items_to_api(params, google_item)
                     special_logger.info(f"[work-{params.worker_id}][{params.task_id}][{keyword}] {params.proxies['server']} success")
-
+                else:
+                    send_success_task(params, [keyword_item])
                 if shopify_products:
                     send_shopify_product_to_api(params, shopify_products)
 
