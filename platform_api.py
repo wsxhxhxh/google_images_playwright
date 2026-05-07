@@ -258,7 +258,10 @@ def send_keyword_status(params, tasks, status):
 
     ids = []
     for task in tasks:
-        t = json.loads(task)
+        if type(task) == str:
+            t = json.loads(task)
+        else:
+            t = task
         ids.append(t["id"])
 
     data = {"keyword_ids": ids, "status": status}
