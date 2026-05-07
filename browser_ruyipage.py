@@ -259,10 +259,10 @@ class RuyiPageBrowser:
             try:
                 btn = self.page.ele(f"css:{sel}", timeout=timeout)
                 if btn:
-                    random_sleep(0.1, 0.2)
+                    random_sleep(0.4, 0.9)
                     btn.click()
                     logger.info(f"[Worker-{self.worker_id}] 已点击 Cookie 同意按钮: {sel}")
-                    random_sleep(0.1, 0.2)
+                    random_sleep(0.3, 0.7)
                     return True
             except Exception:
                 continue
@@ -295,7 +295,7 @@ class RuyiPageBrowser:
         for i in range(steps):
             prev_height = self.page.run_js("return document.body.scrollHeight;")
             self.page.run_js("window.scrollTo(0, document.body.scrollHeight);")
-            random_sleep(0.1, 0.2)
+            random_sleep(0.5, 1.0)
 
             new_height = self.page.run_js("return document.body.scrollHeight;")
             if new_height == prev_height:
@@ -307,11 +307,13 @@ class RuyiPageBrowser:
             if random.random() < 0.3:
                 back = random.randint(100, 300)
                 self.page.run_js(f"window.scrollBy(0, -{back});")
+                random_sleep(0.3, 0.6)
 
     def slight_random_scroll(self):
         self._require_page()
         distance = random.randint(120, 260)
         self.page.run_js(f"window.scrollBy(0, {distance});")
+        random_sleep(0.3, 0.8)
 
     # ── 搜索主流程 ────────────────────────────────────────────
     def search_and_get_html(self, keyword_item: dict, params, first_run: bool = False) -> dict | None:
@@ -377,7 +379,7 @@ class RuyiPageBrowser:
             return None
 
         self.slight_random_scroll()
-        random_sleep(0.1, 0.2)
+        random_sleep(0.5, 1.0)
 
         html = self.get_rendered_html()
 
