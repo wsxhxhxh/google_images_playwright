@@ -206,7 +206,7 @@ def send_shopify_product_to_api(*args):
         raise TypeError("send_shopify_product_to_api expects (params, item) or (session, params, item)")
 
     start_time = time.time()
-    api_url = "https://downloadtemp.flsxxsmode.xyz/2026_api_importshopifydomain.php"
+    api_url = "https://downloadtemp.flsxxsmode.top/2026_api_importshopifydomain.php"
     try:
         text = _request_text("POST", api_url, json_data=item, timeout=10)
         logger.info(f"send items result: {text}")
