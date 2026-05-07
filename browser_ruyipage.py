@@ -440,33 +440,32 @@ class RuyiPageBrowser:
 
             print(f"   - 第 {i + 1} 次滚动命中: [{packet.status}] {packet.url}")
             text = packet.text
-            result = demo_with_real_data(text)
-            for item in result:
-                if item.get("site", ".jp").endswith(".jp"):
-                    continue
-
-                new_data = {
-                    "index": item.get("id"),
-                    "word": item.get("title"),
-                    "domain": item.get("site"),
-                    "link": item.get("url"),
-                    "image": item.get("image"),
-                    "info": {
-                        "desc": item.get("desc"),
-                        "brand": item.get("brand"),
-                        "price": item.get("price"),
-                        "currency": item.get("currency"),
-                        "score": item.get("score"),
-                        "review": item.get("review"),
-                    },
-                    "parent": params.task_id,
-                    "stat": -1,
-                    "createdAt": str(datetime.datetime.now(datetime.timezone.utc)),
-                }
-
-                new_datas.append(new_data)
-                domains.append(item.get("site"))
             if text:
+                result = demo_with_real_data(text)
+                for item in result:
+                    if item.get("site", ".jp").endswith(".jp"):
+                        continue
+                    new_data = {
+                        "index": item.get("id"),
+                        "word": item.get("title"),
+                        "domain": item.get("site"),
+                        "link": item.get("url"),
+                        "image": item.get("image"),
+                        "info": {
+                            "desc": item.get("desc"),
+                            "brand": item.get("brand"),
+                            "price": item.get("price"),
+                            "currency": item.get("currency"),
+                            "score": item.get("score"),
+                            "review": item.get("review"),
+                        },
+                        "parent": params.task_id,
+                        "stat": -1,
+                        "createdAt": str(datetime.datetime.now(datetime.timezone.utc)),
+                    }
+
+                    new_datas.append(new_data)
+                    domains.append(item.get("site"))
                 break
             print("     该包无可读文本，继续滚动...")
 
