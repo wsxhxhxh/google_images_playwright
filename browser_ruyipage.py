@@ -239,6 +239,7 @@ class RuyiPageBrowser:
             user_dir=self._user_dir,
             browser_path=self.firefox_path,   # None 时 launch() 自动查找 Firefox
         )
+        self.page.listen.start(TARGET_PREFIX)
         logger.info(f"[Worker-{self.worker_id}] Firefox 启动成功")
 
     # ── 导航 ──────────────────────────────────────────────────
@@ -428,7 +429,7 @@ class RuyiPageBrowser:
         related_search = get_related_search(html)
         related_items = get_related_items(html)
 
-        self.page.listen.start(TARGET_PREFIX)
+
 
         print("[3] 向下滚动，尝试触发更多 /search 请求...")
         for i in range(5):
