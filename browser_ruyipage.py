@@ -408,44 +408,44 @@ class RuyiPageBrowser:
 
 
 
-        print("[3] 向下滚动，尝试触发更多 /search 请求...")
-        for i in range(5):
-            self.page.run_js("window.scrollBy(0, 12000)")
-            packet = self.page.listen.wait(timeout=1)
-            if not packet:
-                print(f"   - 第 {i + 1} 次滚动后未捕获新包")
-                continue
-
-            print(f"   - 第 {i + 1} 次滚动命中: [{packet.status}] {packet.url}")
-            text = packet.text
-            if text:
-                result = demo_with_real_data(text)
-                for item in result:
-                    if item.get("site", ".jp").endswith(".jp"):
-                        continue
-                    new_data = {
-                        "index": item.get("id"),
-                        "word": item.get("title"),
-                        "domain": item.get("site"),
-                        "link": item.get("url"),
-                        "image": item.get("image"),
-                        "info": {
-                            "desc": item.get("desc"),
-                            "brand": item.get("brand"),
-                            "price": item.get("price"),
-                            "currency": item.get("currency"),
-                            "score": item.get("score"),
-                            "review": item.get("review"),
-                        },
-                        "parent": params.task_id,
-                        "stat": -1,
-                        "createdAt": str(datetime.datetime.now(datetime.timezone.utc)),
-                    }
-
-                    new_datas.append(new_data)
-                    domains.append(item.get("site"))
-                break
-            print("     该包无可读文本，继续滚动...")
+        # print("[3] 向下滚动，尝试触发更多 /search 请求...")
+        # for i in range(5):
+        #     self.page.run_js("window.scrollBy(0, 12000)")
+        #     packet = self.page.listen.wait(timeout=1)
+        #     if not packet:
+        #         print(f"   - 第 {i + 1} 次滚动后未捕获新包")
+        #         continue
+        #
+        #     print(f"   - 第 {i + 1} 次滚动命中: [{packet.status}] {packet.url}")
+        #     text = packet.text
+        #     if text:
+        #         result = demo_with_real_data(text)
+        #         for item in result:
+        #             if item.get("site", ".jp").endswith(".jp"):
+        #                 continue
+        #             new_data = {
+        #                 "index": item.get("id"),
+        #                 "word": item.get("title"),
+        #                 "domain": item.get("site"),
+        #                 "link": item.get("url"),
+        #                 "image": item.get("image"),
+        #                 "info": {
+        #                     "desc": item.get("desc"),
+        #                     "brand": item.get("brand"),
+        #                     "price": item.get("price"),
+        #                     "currency": item.get("currency"),
+        #                     "score": item.get("score"),
+        #                     "review": item.get("review"),
+        #                 },
+        #                 "parent": params.task_id,
+        #                 "stat": -1,
+        #                 "createdAt": str(datetime.datetime.now(datetime.timezone.utc)),
+        #             }
+        #
+        #             new_datas.append(new_data)
+        #             domains.append(item.get("site"))
+        #         break
+        #     print("     该包无可读文本，继续滚动...")
 
         return {
             "html": html,
