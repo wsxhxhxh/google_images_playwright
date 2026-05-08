@@ -121,6 +121,7 @@ def _write_proxy_to_user_dir(user_dir: str, proxy_server: str) -> None:
     if scheme == "socks5":
         lines = [
             'user_pref("network.proxy.type", 1);',
+            'user_pref("permissions.default.image", 2);',
             f'user_pref("network.proxy.socks", "{host}");',
             f'user_pref("network.proxy.socks_port", {port});',
             'user_pref("network.proxy.socks_version", 5);',
@@ -239,6 +240,10 @@ class RuyiPageBrowser:
             user_dir=self._user_dir,
             browser_path=self.firefox_path,   # None 时 launch() 自动查找 Firefox
         )
+        self.page.run_js("""
+        document.documentElement.style.scrollBehavior = 'auto';
+        document.body.style.scrollBehavior = 'auto';
+        """)
         self.page.listen.start(TARGET_PREFIX)
         logger.info(f"[Worker-{self.worker_id}] Firefox 启动成功")
 
@@ -290,31 +295,6 @@ class RuyiPageBrowser:
         self.page.actions.key_down(Keys.ENTER).key_up(Keys.ENTER).perform()
         logger.info(f"[Worker-{self.worker_id}] 已提交搜索: {keyword}")
 
-    # ── 滚动 ──────────────────────────────────────────────────
-    def human_scroll(self, steps: int = 6):
-        self._require_page()
-        for i in range(steps):
-            prev_height = self.page.run_js("return document.body.scrollHeight;")
-            self.page.run_js("window.scrollTo(0, document.body.scrollHeight);")
-            random_sleep(0.4, 0.8 )
-
-            new_height = self.page.run_js("return document.body.scrollHeight;")
-            if new_height == prev_height:
-                logger.info(f"[Worker-{self.worker_id}] 已到达页面底部（滚动 {i + 1} 次）")
-                break
-            else:
-                logger.info(f"[Worker-{self.worker_id}] 页面高度: {prev_height} -> {new_height}")
-
-            if random.random() < 0.3:
-                back = random.randint(100, 300)
-                self.page.run_js(f"window.scrollBy(0, -{back});")
-                random_sleep(0.3, 0.6)
-
-    def slight_random_scroll(self):
-        self._require_page()
-        distance = random.randint(120, 260)
-        self.page.run_js(f"window.scrollBy(0, {distance});")
-        random_sleep(0.3, 0.7)
 
     # ── 搜索主流程 ────────────────────────────────────────────
     def search_and_get_html(self, keyword_item: dict, params, first_run: bool = False) -> dict | None:
@@ -379,9 +359,6 @@ class RuyiPageBrowser:
             logger.warning(f"[Worker-{self.worker_id}] 搜索后检测到验证页面: {current_url}")
             return None
 
-        self.slight_random_scroll()
-        random_sleep(0.4, 0.8)
-
         html = self.get_rendered_html()
 
         if not html:
@@ -433,7 +410,7 @@ class RuyiPageBrowser:
 
         print("[3] 向下滚动，尝试触发更多 /search 请求...")
         for i in range(5):
-            self.page.actions.scroll(0, 12000).perform()
+            self.page.run_js("window.scrollBy(0, 12000)")
             packet = self.page.listen.wait(timeout=1)
             if not packet:
                 print(f"   - 第 {i + 1} 次滚动后未捕获新包")
