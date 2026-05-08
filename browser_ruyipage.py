@@ -56,8 +56,9 @@ from ruyipage import launch, Keys
 from config import Config, logger, special_logger
 from deal_product_func_async import deal_info, deal_shopify_product_info
 from parsel_json_str import demo_with_real_data, get_related_search, get_related_items
-from platform_api import send_items_to_api, send_shopify_product_to_api, send_success_task
-from dblocal import DbManager
+from platform_api import send_items_to_api, send_shopify_product_to_api, send_success_task, fetch_tasks_from_api, \
+    send_err_task
+
 
 
 # ──────────────────────────────────────────────────────────────
@@ -76,7 +77,6 @@ TARGET_PREFIX = "https://www.google.com/search?vet="
 # 防止多个 Firefox 同时启动时抢占 OS 资源导致初始化失败
 # 调小可加快启动速度，调大更稳定
 STAGGER_SEC = 2.0
-
 
 # ──────────────────────────────────────────────────────────────
 # 工具函数
@@ -612,7 +612,6 @@ def search_keyword_batch(params):
     每个 worker_id 对应独立的 Firefox 进程（独立端口 + 独立 user_dir），
     多个 worker 可以安全地并发调用本函数。
     """
-    db: DbManager = params.db
 
     while True:
         proxy = params.app.get_random_proxy()
@@ -642,19 +641,16 @@ def search_keyword_batch(params):
         fail_count    = 0
         captcha_hit   = False
         processed     = 0
-
+        tasks = fetch_tasks_from_api(params)
+        err_tasks = []
         first_run = True
-        while processed < params.datanum:
-            db_task = _fetch_task_with_refill(db, params)
+        while tasks:
+            keyword_item_str = tasks.pop(0)
 
-            if db_task is None:
-                logger.info(f"[Worker-{params.worker_id}] 补词后仍无任务，结束本批")
-                break
-
-            keyword_item = {
-                "id": db_task["keyword_id"],
-                "name": db_task["keyword"],
-            }
+            if type(keyword_item_str) == str:
+                keyword_item = json.loads(keyword_item_str)
+            else:
+                keyword_item = keyword_item_str
 
             logger.info(f"[Worker-{params.worker_id}] 开始搜索: {keyword_item['name']}")
 
@@ -669,19 +665,14 @@ def search_keyword_batch(params):
             first_run = False
 
             processed += 1
-
             if success is True:
-                db.mark_success(db_task["id"])
                 success_count += 1
-
             elif success is None:
-                db.mark_failed(db_task["id"])
+                err_tasks.append(keyword_item)
                 logger.warning(
                     f"[Worker-{params.worker_id}] 验证码或代理失败，立即关闭浏览器"
                 )
-
                 captcha_hit = True
-
                 try:
                     browser.close()
                 except Exception:
@@ -689,12 +680,10 @@ def search_keyword_batch(params):
                 break
 
             else:
-                db.mark_failed(db_task["id"])
+                err_tasks.append(keyword_item)
                 fail_count += 1
-
-            db.auto_refresh_if_needed()
-
-        db.print_stats()
+        if err_tasks:
+            send_err_task(params, err_tasks)
         logger.info(
             f"[Worker-{params.worker_id}] 本批结束 — "
             f"处理: {processed}, 成功: {success_count}, 失败: {fail_count}"
@@ -713,46 +702,3 @@ def search_keyword_batch(params):
         except Exception as e:
             logger.warning(f"[Worker-{params.worker_id}] 关闭浏览器失败: {e}")
 
-
-# ──────────────────────────────────────────────────────────────
-# 补词逻辑（与原版完全一致）
-# ──────────────────────────────────────────────────────────────
-
-def _fetch_task_with_refill(db: DbManager, params, max_wait_rounds: int = 6) -> dict | None:
-    """
-    取一条任务。取不到时触发补词并等待，最多等 max_wait_rounds * 10s。
-    """
-    db_task = db.fetch_one_task_safe(task_id=params.task_id)
-    if db_task:
-        return db_task
-
-    logger.info(f"[Worker-{params.worker_id}] SQLite 暂无任务，触发补词...")
-
-    for round_i in range(1, max_wait_rounds + 1):
-        if db.fetch_func:
-            try:
-                db.fetch_func()
-            except Exception as e:
-                logger.error(f"[Worker-{params.worker_id}] 补词异常: {e}")
-
-        from main import get_current_task_info_snapshot
-        current_task_info = get_current_task_info_snapshot()
-        if current_task_info and current_task_info.get("id") != params.task_id:
-            logger.info(
-                f"[Worker-{params.worker_id}] task_id 更新: "
-                f"{params.task_id} -> {current_task_info.get('id')}"
-            )
-            params.task_id = current_task_info.get("id")
-
-        db_task = db.fetch_one_task_safe(task_id=params.task_id)
-        if db_task:
-            logger.info(f"[Worker-{params.worker_id}] 补词后取到任务（第 {round_i} 轮）")
-            return db_task
-
-        logger.info(
-            f"[Worker-{params.worker_id}] 补词后仍无任务，等待 10s "
-            f"({round_i}/{max_wait_rounds})"
-        )
-        time.sleep(10)
-
-    return None
