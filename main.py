@@ -43,7 +43,7 @@ def worker(worker_id: int, stop_event: threading.Event, atm: TokenManager, app: 
         while not stop_event.is_set():
 
             task_info = get_task_info(atm)
-            if task_info is None:
+            if not task_info:
                 logger.info(f"task_info 尚未就绪，等待 5s")
                 stop_event.wait(5)
                 continue
