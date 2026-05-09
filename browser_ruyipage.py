@@ -53,7 +53,7 @@ sys.path.insert(0, r"C:\Users\XXX\Desktop\mypy\ruyipage")
 # ★ 改用 launch()，不再导入 FirefoxPage / FirefoxOptions
 from ruyipage import launch, Keys
 
-from config import Config, logger, special_logger
+from config import Config, logger, special_logger, data_logger
 from deal_product_func_async import deal_info, deal_shopify_product_info
 from parsel_json_str import demo_with_real_data, get_related_search, get_related_items
 from platform_api import send_items_to_api, send_shopify_product_to_api, send_success_task, fetch_tasks_from_api, \
@@ -121,7 +121,6 @@ def _write_proxy_to_user_dir(user_dir: str, proxy_server: str) -> None:
     if scheme == "socks5":
         lines = [
             'user_pref("network.proxy.type", 1);',
-            'user_pref("permissions.default.image", 2);',
             f'user_pref("network.proxy.socks", "{host}");',
             f'user_pref("network.proxy.socks_port", {port});',
             'user_pref("network.proxy.socks_version", 5);',
@@ -559,12 +558,12 @@ def search_single_keyword(
 
                 if products:
                     send_items_to_api(params, google_item)
-                    special_logger.info(f"[work-{params.worker_id}][{params.task_id}][{keyword}] {params.proxies['server']} success")
                 else:
                     send_success_task(params, [keyword_item])
                 if shopify_products:
                     send_shopify_product_to_api(params, shopify_products)
-
+                special_logger.info(
+                    f"[work-{params.worker_id}][{params.task_id}][{keyword}] {params.proxies['server']} success product{len(products)}")
             params.app.set_success(params.atm, params.proxies)
             return True
 
@@ -663,6 +662,11 @@ def search_keyword_batch(params):
         if err_tasks:
             send_err_task(params, err_tasks)
         logger.info(
+            f"[Worker-{params.worker_id}] 本批结束 — "
+            f"处理: {processed}, 成功: {success_count}, 失败: {fail_count}"
+            + (" [验证码/代理中断]" if captcha_hit else "")
+        )
+        data_logger.info(
             f"[Worker-{params.worker_id}] 本批结束 — "
             f"处理: {processed}, 成功: {success_count}, 失败: {fail_count}"
             + (" [验证码/代理中断]" if captcha_hit else "")

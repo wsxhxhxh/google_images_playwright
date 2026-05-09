@@ -231,7 +231,7 @@ def send_items_to_api(*args):
     try:
         items_backup = [item]
         data_to_send = {"param": [dict(entry) for entry in items_backup]}
-        data_logger.info(f"[{params.worker_id}] {data_to_send}")
+        # data_logger.info(f"[{params.worker_id}] {data_to_send}")
         url = (
             f"{params.agent_url}?action=setwordsV1&d={params.dbname}&db_user={params.dbuser}"
             f"&db_pass={params.dbpasswd}&secret_key={params.agent_key}"
