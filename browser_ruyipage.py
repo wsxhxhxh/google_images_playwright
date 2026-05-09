@@ -145,7 +145,9 @@ def _write_proxy_to_user_dir(user_dir: str, proxy_server: str) -> None:
     else:
         logger.warning(f"[_write_proxy] 不支持的代理协议: {scheme!r}，跳过写入")
         return
-
+    lines += [
+        'user_pref("permissions.default.image", 2);',
+    ]
     user_js_path = os.path.join(user_dir, "user.js")
     with open(user_js_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
@@ -242,6 +244,15 @@ class RuyiPageBrowser:
         self.page.run_js("""
         document.documentElement.style.scrollBehavior = 'auto';
         document.body.style.scrollBehavior = 'auto';
+        """)
+        self.page.run_js("""
+        const style = document.createElement('style');
+        style.innerHTML = `
+        * {
+          scroll-behavior: auto !important;
+        }
+        `;
+        document.head.appendChild(style);
         """)
         self.page.listen.start(TARGET_PREFIX)
         logger.info(f"[Worker-{self.worker_id}] Firefox 启动成功")
@@ -468,6 +479,9 @@ class RuyiPageBrowser:
             except Exception:
                 return ""
 
+    def refresh(self):
+        self.page.refresh()
+
     # ── 关闭 ──────────────────────────────────────────────────
     def close(self):
         """安全关闭浏览器（不删除 user_dir，下次启动可复用 profile）"""
@@ -642,6 +656,10 @@ def search_keyword_batch(params):
             first_run = False
 
             processed += 1
+
+            if processed % 3 == 0:
+                browser.refresh()
+
             if success is True:
                 success_count += 1
             elif success is None:
