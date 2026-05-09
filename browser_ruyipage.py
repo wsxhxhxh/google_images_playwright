@@ -361,7 +361,7 @@ class RuyiPageBrowser:
         random_sleep(0.1, 0.2)
         # 回车搜索
         self.page.actions.key_down(Keys.ENTER).key_up(Keys.ENTER).perform()
-        random_sleep(0.1, 0.2)
+        random_sleep(0.5, 1.0)
 
         # 搜索后再检查验证码
         current_url = self.page.url
