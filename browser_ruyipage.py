@@ -563,7 +563,7 @@ def search_single_keyword(
                 if shopify_products:
                     send_shopify_product_to_api(params, shopify_products)
                 special_logger.info(
-                    f"[work-{params.worker_id}][{params.task_id}][{keyword}] {params.proxies['server']} success product{len(products)}")
+                    f"[work-{params.worker_id}][{params.task_id}][{keyword}] {params.proxies['server']} success product {len(products)}")
             params.app.set_success(params.atm, params.proxies)
             return True
 
