@@ -38,14 +38,14 @@ class SearchTaskParams:
 
 
 def worker(worker_id: int, stop_event: threading.Event, atm: TokenManager, app: ProxyPool):
-    logger.info(f"[Worker-{worker_id}] 启动")
+    logger.info(f"[Worker-{worker_id}] Start")
 
     try:
         while not stop_event.is_set():
 
             task_info = get_task_info(atm)
             if not task_info:
-                logger.info(f"task_info 尚未就绪，等待 5s")
+                logger.info(f"not task_info, sleep 5s")
                 stop_event.wait(5)
                 continue
 
@@ -77,18 +77,18 @@ def worker(worker_id: int, stop_event: threading.Event, atm: TokenManager, app: 
 
                 search_keyword_batch(params)
             except Exception as exc:
-                logger.exception(f"[Worker-{worker_id}] 异常: {exc}")
+                logger.exception(f"[Worker-{worker_id}] Exception: {exc}")
     finally:
-        logger.info(f"[Worker-{worker_id}] 已停止")
+        logger.info(f"[Worker-{worker_id}] Stop")
 
 def main():
     stop_event = threading.Event()
     worker_threads = []
     try:
-        logger.info("获取平台 Token...")
+        logger.info("Found Token...")
         atm.refresh_token()
         token = atm.get_token()
-        logger.info(f"Token 获取成功: {token}")
+        logger.info(f"Token Found Success: {token}")
 
         for wid in range(Config.TASK_NUM):
             thread = threading.Thread(
@@ -100,16 +100,16 @@ def main():
             thread.start()
             worker_threads.append(thread)
 
-        logger.info(f"已启动 {len(worker_threads)} 个 Worker")
+        logger.info(f"Start {len(worker_threads)} Worker")
         while not stop_event.is_set():
             time.sleep(1)
     except KeyboardInterrupt:
-        logger.info("收到 KeyboardInterrupt，准备停止...")
+        logger.info("Receive KeyboardInterrupt, Stoping...")
     finally:
         stop_event.set()
         for thread in worker_threads:
             thread.join(timeout=15)
-        logger.info("全部停止")
+        logger.info("All Stop")
 
 
 if __name__ == '__main__':
@@ -118,12 +118,12 @@ if __name__ == '__main__':
     try:
         main()
     except (KeyboardInterrupt, SystemExit):
-        logger.info("收到退出信号，强制关闭...")
+        logger.info("Force Close...")
     except Exception as exc:
-        logger.exception(f"main 异常退出: {exc}")
+        logger.exception(f"MainQuitException: {exc}")
     finally:
         try:
             signal.signal(signal.SIGINT, signal.SIG_IGN)
         except Exception:
             pass
-        logger.info("进程退出")
+        logger.info("Process Termination")

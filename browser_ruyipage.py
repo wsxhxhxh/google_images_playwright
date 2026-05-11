@@ -253,7 +253,7 @@ class RuyiPageBrowser:
         document.head.appendChild(style);
         """)
         # self.page.listen.start(TARGET_PREFIX)
-        logger.info(f"[Worker-{self.worker_id}] Firefox 启动成功")
+        logger.info(f"[Worker-{self.worker_id}] Firefox Start Success")
 
     # ── 导航 ──────────────────────────────────────────────────
     def goto(self, url: str, timeout: int = 30):
