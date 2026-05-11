@@ -252,7 +252,7 @@ class RuyiPageBrowser:
         `;
         document.head.appendChild(style);
         """)
-        # self.page.listen.start(TARGET_PREFIX)
+        self.page.listen.start(TARGET_PREFIX)
         logger.info(f"[Worker-{self.worker_id}] Firefox Start Success")
 
     # ── 导航 ──────────────────────────────────────────────────
@@ -349,6 +349,50 @@ class RuyiPageBrowser:
         if "/sorry/" in current_url or "sorry" in current_url:
             logger.warning(f"[Worker-{self.worker_id}] Verification code: {current_url}")
             return None
+
+        new_datas = []
+        domains = []
+
+        for i in range(5):
+            with log_timing(self.worker_id, f"fetch xhr package {i}"):
+                self.page.run_js("window.scrollBy(0, 12000)")
+                packet = self.page.listen.wait(timeout=1)
+                if not packet:
+                    logger.info(f"   - scroll {i + 1} not new package")
+                    continue
+
+                logger(f"   - scroll {i + 1} fetch new package: [{packet.status}] {packet.url}")
+                text = packet.text
+                if text:
+                    result = demo_with_real_data(text)
+                    for item in result:
+                        if item.get("site", ".jp").endswith(".jp"):
+                            continue
+                        new_data = {
+                            "index": item.get("id"),
+                            "word": item.get("title"),
+                            "domain": item.get("site"),
+                            "link": item.get("url"),
+                            "image": item.get("image"),
+                            "info": {
+                                "desc": item.get("desc"),
+                                "brand": item.get("brand"),
+                                "price": item.get("price"),
+                                "currency": item.get("currency"),
+                                "score": item.get("score"),
+                                "review": item.get("review"),
+                            },
+                            "parent": params.task_id,
+                            "stat": -1,
+                            "createdAt": str(datetime.datetime.now(datetime.timezone.utc)),
+                        }
+
+                        new_datas.append(new_data)
+                        domains.append(item.get("site"))
+                    break
+                print("     this tackage not text, fetch next package...")
+
+
         with log_timing(self.worker_id, "get rendered html"):
             html = self.get_rendered_html()
 
@@ -362,8 +406,7 @@ class RuyiPageBrowser:
                 "related_items": [],
             }
 
-        new_datas = []
-        domains = []
+
 
         logger.info(f"[Worker-{self.worker_id}] get HTML, len: {len(html)}")
         with log_timing(self.worker_id, "real data"):
@@ -400,44 +443,7 @@ class RuyiPageBrowser:
 
 
 
-        # print("[3] 向下滚动，尝试触发更多 /search 请求...")
-        # for i in range(5):
-        #     self.page.run_js("window.scrollBy(0, 12000)")
-        #     packet = self.page.listen.wait(timeout=1)
-        #     if not packet:
-        #         print(f"   - 第 {i + 1} 次滚动后未捕获新包")
-        #         continue
-        #
-        #     print(f"   - 第 {i + 1} 次滚动命中: [{packet.status}] {packet.url}")
-        #     text = packet.text
-        #     if text:
-        #         result = demo_with_real_data(text)
-        #         for item in result:
-        #             if item.get("site", ".jp").endswith(".jp"):
-        #                 continue
-        #             new_data = {
-        #                 "index": item.get("id"),
-        #                 "word": item.get("title"),
-        #                 "domain": item.get("site"),
-        #                 "link": item.get("url"),
-        #                 "image": item.get("image"),
-        #                 "info": {
-        #                     "desc": item.get("desc"),
-        #                     "brand": item.get("brand"),
-        #                     "price": item.get("price"),
-        #                     "currency": item.get("currency"),
-        #                     "score": item.get("score"),
-        #                     "review": item.get("review"),
-        #                 },
-        #                 "parent": params.task_id,
-        #                 "stat": -1,
-        #                 "createdAt": str(datetime.datetime.now(datetime.timezone.utc)),
-        #             }
-        #
-        #             new_datas.append(new_data)
-        #             domains.append(item.get("site"))
-        #         break
-        #     print("     该包无可读文本，继续滚动...")
+
 
         return {
             "html": html,
@@ -512,10 +518,7 @@ def search_single_keyword(
 
     for attempt in range(max_retries):
         try:
-            logger.info(
-                f"[Worker-{params.worker_id}][{keyword}] "
-                f"Search Start（try {attempt + 1}/{max_retries}）"
-            )
+            logger.info(f"[{keyword}] Search Start(try {attempt + 1}/{max_retries})")
 
             aggregated_data = browser.search_and_get_html(
                 keyword_item,
@@ -532,10 +535,7 @@ def search_single_keyword(
                 return None
 
             if aggregated_data["new_datas"]:
-                logger.info(
-                    f"[Worker-{params.worker_id}][{keyword}] "
-                    f"processed {len(aggregated_data['new_datas'])} data"
-                )
+                logger.info(f"[{keyword}] processed {len(aggregated_data['new_datas'])} data")
 
                 products = deal_info(aggregated_data["new_datas"], params)
                 shopify_products = deal_shopify_product_info(params, products)
