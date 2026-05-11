@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from typing import Dict, List
 
 from browser_ruyipage import search_keyword_batch
-from config import logger, Config
+from config import Config
+from log import logger
 from platform_api import TokenManager, ProxyPool, get_task_info
 
 

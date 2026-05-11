@@ -9,7 +9,8 @@ from urllib import error
 
 import requests
 
-from config import logger, Config, data_logger
+from config import Config
+from log import logger, data_logger
 
 
 _SSL_CONTEXT = ssl._create_unverified_context()

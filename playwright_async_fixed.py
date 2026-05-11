@@ -9,7 +9,8 @@ from playwright.async_api import async_playwright, BrowserContext, Page, Timeout
 from playwright._impl._errors import Error as PlaywrightError
 from typing import Optional
 
-from config import Config, logger, special_logger
+from config import Config
+from log import logger, special_logger
 from deal_product_func_async import deal_info_by_async, deal_shopify_product_info_async
 from parsel_json_str import demo_with_real_data, get_related_search, get_related_items
 from platform_api import send_items_to_api, send_shopify_product_to_api, send_err_task, fetch_tasks_from_api, update_task_status

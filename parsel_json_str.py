@@ -9,7 +9,7 @@ import json
 import re
 from lxml import etree
 from typing import Any, List, Tuple
-from config import logger
+from log import logger
 
 
 class RecursiveJSONExtractor:
