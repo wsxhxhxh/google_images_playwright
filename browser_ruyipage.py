@@ -361,7 +361,7 @@ class RuyiPageBrowser:
                     logger.info(f"   - scroll {i + 1} not new package")
                     continue
 
-                logger(f"   - scroll {i + 1} fetch new package: [{packet.status}] {packet.url}")
+                logger.info(f"   - scroll {i + 1} fetch new package: [{packet.status}] {packet.url}")
                 text = packet.text
                 if text:
                     result = demo_with_real_data(text)
