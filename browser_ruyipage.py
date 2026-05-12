@@ -20,6 +20,7 @@
 
 import io
 import os
+import re
 import sys
 import json
 import time
@@ -87,6 +88,11 @@ def random_sleep(min_s: float = 0.5, max_s: float = 1.2):
     """随机等待，模拟真人节奏"""
     time.sleep(random.uniform(min_s, max_s))
 
+
+def extract_script_texts(html: str) -> str:
+    """只提取 <script> 标签内容拼接，体积比全 HTML 小 80% 以上"""
+    scripts = re.findall(r'<script[^>]*>(.*?)</script>', html, re.DOTALL)
+    return "\n".join(scripts)
 
 def _get_worker_user_dir(worker_id: int) -> str:
     """
@@ -338,7 +344,16 @@ class RuyiPageBrowser:
         random_sleep(0.1, 0.2)
         # 输入关键词（ruyipage原生）
         with log_timing(self.worker_id, "input keyword"):
-            textarea.input(keyword)
+            safe_keyword = keyword.replace("'", "\\'").replace("\n", " ")
+            self.page.run_js(f"""
+                    let el = document.querySelector('textarea.gLFyf') 
+                          || document.querySelector('input[name="q"]');
+                    if (el) {{
+                        el.value = '{safe_keyword}';
+                        el.dispatchEvent(new Event('input',  {{bubbles: true}}));
+                        el.dispatchEvent(new Event('change', {{bubbles: true}}));
+                    }}
+                """)
         random_sleep(0.1, 0.2)
         # 回车搜索
         self.page.actions.key_down(Keys.ENTER).key_up(Keys.ENTER).perform()
@@ -410,7 +425,8 @@ class RuyiPageBrowser:
 
         logger.info(f"[Worker-{self.worker_id}] get HTML, len: {len(html)}")
         with log_timing(self.worker_id, "real data"):
-            result = demo_with_real_data(html)
+            script_text = extract_script_texts(html)  # ← 只取 script 块
+            result = demo_with_real_data(script_text)
 
         for item in result:
             if item.get("site", ".jp").endswith(".jp"):
