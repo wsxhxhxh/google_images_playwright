@@ -471,7 +471,6 @@ class RuyiPageBrowser:
         related_items = self.get_related_items_via_js()
 
         return {
-            "html": html,
             "new_datas": new_datas,
             "domains": domains,
             "related_search": related_search,
