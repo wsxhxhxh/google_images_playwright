@@ -473,8 +473,8 @@ class RuyiPageBrowser:
         related_search = self.get_related_search_via_js()
         related_items = self.get_related_items_via_js()
 
-        logger.info(str(related_search))
-        logger.info(str(related_items))
+        logger.info("[debug]related search: " + str(related_search))
+        logger.info("[debug]related items: " + str(related_items))
 
         return {
             "new_datas": new_datas,
