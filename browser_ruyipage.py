@@ -289,6 +289,33 @@ class RuyiPageBrowser:
         logger.info(f"[Worker-{self.worker_id}] 未检测到 Cookie 弹窗")
         return False
 
+    def get_related_search_via_js(self) -> list:
+        """在浏览器内执行，省去传输 HTML 的开销"""
+        return self.page.run_js("""
+            const results = [];
+            document.querySelectorAll('h2 ~ a').forEach(a => {
+                const divs = a.querySelectorAll('div');
+                if (divs.length) results.push(divs[divs.length-1].innerText);
+            });
+            return results;
+        """) or []
+
+    def get_script_texts_via_js(self) -> str:
+        """直接在浏览器内拼接所有 script 内容，不传输完整 HTML"""
+        return self.page.run_js("""
+            return Array.from(document.querySelectorAll('script'))
+                .map(s => s.textContent)
+                .join('\\n');
+        """) or ""
+
+    def get_related_items_via_js(self) -> list:
+        return self.page.run_js("""
+            return Array.from(
+                document.querySelectorAll('[jsname="pIvPIe"] span')
+            ).map(el => el.innerText).filter(t => t.trim() !== '');
+        """) or []
+
+
     # ── 搜索主流程 ────────────────────────────────────────────
     def search_and_get_html(self, keyword_item: dict, params, first_run: bool = False) -> dict | None:
         self._require_page()
@@ -407,25 +434,11 @@ class RuyiPageBrowser:
                     break
                 print("     this tackage not text, fetch next package...")
 
+        with log_timing(self.worker_id, "get script texts"):
+            script_text = self.get_script_texts_via_js()
 
-        with log_timing(self.worker_id, "get rendered html"):
-            html = self.get_rendered_html()
-
-        if not html:
-            logger.warning(f"[Worker-{self.worker_id}] not get HTML, keyword: {keyword}")
-            return {
-                "html": "",
-                "new_datas": [],
-                "domains": [],
-                "related_search": [],
-                "related_items": [],
-            }
-
-
-
-        logger.info(f"[Worker-{self.worker_id}] get HTML, len: {len(html)}")
+        logger.info(f"[Worker-{self.worker_id}] script text len: {len(script_text)}")
         with log_timing(self.worker_id, "real data"):
-            script_text = extract_script_texts(html)  # ← 只取 script 块
             result = demo_with_real_data(script_text)
 
         for item in result:
@@ -454,12 +467,8 @@ class RuyiPageBrowser:
             new_datas.append(new_data)
             domains.append(item.get("site"))
 
-        related_search = get_related_search(html)
-        related_items = get_related_items(html)
-
-
-
-
+        related_search = self.get_related_search_via_js()
+        related_items = self.get_related_items_via_js()
 
         return {
             "html": html,
@@ -470,18 +479,15 @@ class RuyiPageBrowser:
         }
 
     def get_rendered_html(self) -> str:
-        """获取当前页面渲染完成后的 HTML"""
         self._require_page()
         try:
-            html = self.page.html
-            if callable(html):
-                html = html()
-            return html or ""
+            # page.html 会等 network idle，改用 JS 立即取当前 DOM
+            return self.page.run_js(
+                "return document.documentElement.outerHTML;"
+            ) or ""
         except Exception:
-            try:
-                return self.page.run_js("return document.documentElement.outerHTML;") or ""
-            except Exception:
-                return ""
+            return ""
+
 
     def refresh(self):
         self.page.refresh()
