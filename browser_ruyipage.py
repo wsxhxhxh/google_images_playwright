@@ -290,31 +290,34 @@ class RuyiPageBrowser:
         return False
 
     def get_related_search_via_js(self) -> list:
-        """在浏览器内执行，省去传输 HTML 的开销"""
         return self.page.run_js("""
-            const results = [];
-            document.querySelectorAll('h2 ~ a').forEach(a => {
-                const divs = a.querySelectorAll('div');
-                if (divs.length) results.push(divs[divs.length-1].innerText);
-            });
-            return results;
+            (() => {
+                const results = [];
+                document.querySelectorAll('h2 ~ a').forEach(a => {
+                    const divs = a.querySelectorAll('div');
+                    if (divs.length) results.push(divs[divs.length-1].innerText);
+                });
+                return results;
+            })();
         """) or []
 
     def get_script_texts_via_js(self) -> str:
-        """直接在浏览器内拼接所有 script 内容，不传输完整 HTML"""
         return self.page.run_js("""
-            return Array.from(document.querySelectorAll('script'))
-                .map(s => s.textContent)
-                .join('\\n');
+            (() => {
+                return Array.from(document.querySelectorAll('script'))
+                    .map(s => s.textContent)
+                    .join('\\n');
+            })();
         """) or ""
 
     def get_related_items_via_js(self) -> list:
         return self.page.run_js("""
-            return Array.from(
-                document.querySelectorAll('[jsname="pIvPIe"] span')
-            ).map(el => el.innerText).filter(t => t.trim() !== '');
+            (() => {
+                return Array.from(
+                    document.querySelectorAll('[jsname="pIvPIe"] span')
+                ).map(el => el.innerText).filter(t => t.trim() !== '');
+            })();
         """) or []
-
 
     # ── 搜索主流程 ────────────────────────────────────────────
     def search_and_get_html(self, keyword_item: dict, params, first_run: bool = False) -> dict | None:
