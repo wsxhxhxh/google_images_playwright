@@ -311,11 +311,23 @@ class RuyiPageBrowser:
         """) or ""
 
     def get_related_items_via_js(self) -> list:
-        return self.page.run_js("""
+        return self.page.run_js(r"""
             (() => {
-                return Array.from(
-                    document.querySelectorAll('[jsname="pIvPIe"] span')
-                ).map(el => el.innerText).filter(t => t.trim() !== '');
+                const raw = Array.from(document.querySelectorAll('script'))
+                    .map(s => s.textContent).join('\n');
+
+                const decoded = raw.replace(/\\x([0-9A-Fa-f]{2})/g, (_, h) =>
+                    String.fromCharCode(parseInt(h, 16))
+                );
+
+                const re = /jsname="pIvPIe">(.*?)<\/span>/gs;
+                const results = [];
+                let m;
+                while ((m = re.exec(decoded)) !== null) {
+                    const text = m[1].trim();
+                    if (text) results.push(text);
+                }
+                return results;
             })();
         """) or []
 
