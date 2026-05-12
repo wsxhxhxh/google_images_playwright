@@ -483,7 +483,7 @@ class RuyiPageBrowser:
             domains.append(item.get("site"))
 
         related_search = self.get_related_search_via_js()
-        related_items = self.get_related_items_via_js()
+        related_items = get_related_items(script_text)
 
         logger.info("[debug]related search: " + str(related_search))
         logger.info("[debug]related items: " + str(related_items))
