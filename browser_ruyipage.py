@@ -49,10 +49,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-sys.path.insert(0, r"C:\Users\XXX\Desktop\mypy\ruyipage")
-
-# ★ 改用 launch()，不再导入 FirefoxPage / FirefoxOptions
-from ruyipage import launch, Keys
+from ruyipage import Keys, FirefoxPage, FirefoxOptions
 
 from config import Config
 from log import logger, special_logger, data_logger, log_timing
@@ -84,6 +81,80 @@ STAGGER_SEC = 2.0
 # 工具函数
 # ──────────────────────────────────────────────────────────────
 
+
+def launch(
+    *,
+    headless=False,
+    private=False,
+    xpath_picker=False,
+    action_visual=False,
+    port=9222,
+    browser_path=None,
+    user_dir=None,
+    close_on_exit=True,
+    window_size=(1280, 800),
+    timeout_base=10,
+    timeout_page_load=30,
+    timeout_script=30,
+    trace=False,
+    failure_snapshot=False,
+    snapshot_dir=None,
+    proxies=None,
+):
+    """快速启动 FirefoxPage（小白友好入口）。
+
+    Args:
+        headless: 是否无头
+        private: 是否启用 Firefox 私密浏览模式
+        xpath_picker: 是否启用页面 XPath 选择浮窗
+        action_visual: 是否启用鼠标行为可视化调试模式
+        port: 远程调试端口
+        browser_path: Firefox 可执行文件路径。
+            适用于 Firefox 安装在非默认目录时。
+        user_dir: 用户目录 / profile 目录。
+            适用于希望复用登录态、Cookie、扩展时。
+        close_on_exit: Python 程序退出时是否自动关闭浏览器。
+            默认 ``True``。仅对 ruyipage 自己启动的浏览器生效；
+            attach 已有浏览器时只断开连接，不主动关闭外部进程。
+        window_size: 窗口大小 (width, height)
+        timeout_base: 基础超时
+        timeout_page_load: 页面加载超时
+        timeout_script: 脚本执行超时
+        trace: 是否启用 debug trace 记录
+        failure_snapshot: 是否启用失败自动诊断快照
+        snapshot_dir: 诊断快照保存目录
+
+    Returns:
+        FirefoxPage
+
+    说明:
+        - 推荐新手优先使用 launch()。
+        - 内部自动创建 FirefoxOptions 并套用 quick_start 预设。
+        - 当你不确定该配置哪些参数时，先从 launch() 开始。
+    """
+    opts = FirefoxOptions()
+    opts.set_port(port).quick_start(
+        headless=headless,
+        private=private,
+        xpath_picker=xpath_picker,
+        action_visual=action_visual,
+        close_on_exit=close_on_exit,
+        window_size=window_size,
+        timeout_base=timeout_base,
+        timeout_page_load=timeout_page_load,
+        timeout_script=timeout_script,
+        trace=trace,
+        failure_snapshot=failure_snapshot,
+        snapshot_dir=snapshot_dir,
+    )
+    if browser_path:
+        opts.set_browser_path(browser_path)
+    if user_dir:
+        opts.set_user_dir(user_dir)
+    if proxies:
+        opts.set_proxy(proxies)
+    return FirefoxPage(opts)
+
 def random_sleep(min_s: float = 0.5, max_s: float = 1.2):
     """随机等待，模拟真人节奏"""
     time.sleep(random.uniform(min_s, max_s))
@@ -102,73 +173,6 @@ def _get_worker_user_dir(worker_id: int) -> str:
     path = os.path.join(USER_DIR_ROOT, f"worker_{worker_id}")
     os.makedirs(path, exist_ok=True)
     return path
-
-
-def _write_proxy_to_user_dir(user_dir: str, proxy_server: str) -> None:
-    """
-    将代理配置写入 user_dir/user.js。
-    Firefox 每次启动时都会读取 user.js 并将其中的设置覆盖到 prefs.js，
-    这样无需依赖 FirefoxOptions.set_proxy()，launch() 也能使用代理。
-
-    支持格式：
-        socks5://host:port
-        socks5://user:pass@host:port
-        http://host:port
-    """
-    if not proxy_server:
-        return
-
-    p = urlparse(proxy_server)
-    scheme = (p.scheme or "").lower()
-    host   = p.hostname or ""
-    port   = p.port or 1080
-
-    lines = []
-
-    if scheme == "socks5":
-        lines = [
-            'user_pref("network.proxy.type", 1);',
-            f'user_pref("network.proxy.socks", "{host}");',
-            f'user_pref("network.proxy.socks_port", {port});',
-            'user_pref("network.proxy.socks_version", 5);',
-            # DNS 查询也走代理，防止 DNS 泄漏
-            'user_pref("network.proxy.socks_remote_dns", true);',
-        ]
-        # SOCKS5 带认证
-        if p.username:
-            lines += [
-                f'user_pref("network.proxy.socks_username", "{p.username}");',
-                f'user_pref("network.proxy.socks_password", "{p.password or ""}");',
-            ]
-
-    elif scheme == "http":
-        lines = [
-            'user_pref("network.proxy.type", 1);',
-            f'user_pref("network.proxy.http", "{host}");',
-            f'user_pref("network.proxy.http_port", {port});',
-            f'user_pref("network.proxy.ssl", "{host}");',
-            f'user_pref("network.proxy.ssl_port", {port});',
-        ]
-    else:
-        logger.warning(f"[_write_proxy] Unsupported Proxy Protocol: {scheme!r}，pass")
-        return
-    lines += [
-        'user_pref("permissions.default.image", 2);',
-    ]
-    user_js_path = os.path.join(user_dir, "user.js")
-    with open(user_js_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
-
-    logger.info(f"[_write_proxy] Proxies Saved {user_js_path} → {proxy_server}")
-
-
-def _clear_proxy_from_user_dir(user_dir: str) -> None:
-    """清除 user.js 中的代理配置（直连时调用）"""
-    user_js_path = os.path.join(user_dir, "user.js")
-    # 写入"无代理"配置
-    with open(user_js_path, "w", encoding="utf-8") as f:
-        f.write('user_pref("network.proxy.type", 0);\n')
-
 
 # ──────────────────────────────────────────────────────────────
 # 浏览器封装
@@ -223,12 +227,6 @@ class RuyiPageBrowser:
             logger.info(f"[Worker-{self.worker_id}] delay {stagger}s")
             time.sleep(stagger)
 
-        # 步骤2：将代理写入该 worker 专属的 user.js
-        if proxy_server:
-            _write_proxy_to_user_dir(self._user_dir, proxy_server)
-        else:
-            _clear_proxy_from_user_dir(self._user_dir)
-
         # 步骤3：launch() 启动独立 Firefox 进程
         #   - port     : 每个 worker 独占一个端口，互不干扰
         #   - user_dir : 每个 worker 独占一个 profile 目录
@@ -244,6 +242,7 @@ class RuyiPageBrowser:
             port=self._port,
             user_dir=self._user_dir,
             browser_path=self.firefox_path,   # None 时 launch() 自动查找 Firefox
+            proxies=self.proxies["server"],
         )
         self.page.run_js("""
         document.documentElement.style.scrollBehavior = 'auto';
