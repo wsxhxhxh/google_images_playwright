@@ -348,7 +348,7 @@ class RuyiPageBrowser:
                 logger.warning(f"[Worker-{self.worker_id}] Verification code Page: {current_url}")
                 return None
 
-            # self.handle_cookie_consent()
+            self.handle_cookie_consent()
 
         # 每次都检查是否已经跳验证码
         current_url = self.page.url
