@@ -151,7 +151,7 @@ def launch(
         opts.set_browser_path(browser_path)
     if user_dir:
         opts.set_user_dir(user_dir)
-    if proxies:
+    if proxies and Config.USE_PROXY:
         opts.set_proxy(proxies)
     return FirefoxPage(opts)
 
