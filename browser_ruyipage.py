@@ -155,6 +155,59 @@ def launch(
         opts.set_proxy(proxies)
     return FirefoxPage(opts)
 
+def _clear_proxy_from_user_dir(user_dir: str) -> None:
+    """
+    Fully disable proxy settings.
+    """
+
+    user_js_path = os.path.join(user_dir, "user.js")
+
+    lines = [
+        'user_pref("network.proxy.type", 0);',
+
+        'user_pref("network.proxy.http", "");',
+        'user_pref("network.proxy.http_port", 0);',
+
+        'user_pref("network.proxy.ssl", "");',
+        'user_pref("network.proxy.ssl_port", 0);',
+
+        'user_pref("network.proxy.socks", "");',
+        'user_pref("network.proxy.socks_port", 0);',
+
+        'user_pref("network.proxy.socks_version", 5);',
+        'user_pref("network.proxy.socks_remote_dns", false);',
+
+        'user_pref("network.proxy.no_proxies_on", "");',
+    ]
+
+    with open(user_js_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+    logger.info(f"[Proxy] Proxy settings cleared: {user_js_path}")
+
+
+def clean_proxy_prefs(user_dir: str):
+    prefs_path = os.path.join(user_dir, "prefs.js")
+
+    if not os.path.exists(prefs_path):
+        return
+
+    with open(prefs_path, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.readlines()
+
+    filtered = []
+
+    for line in lines:
+        if "network.proxy" in line:
+            continue
+        filtered.append(line)
+
+    with open(prefs_path, "w", encoding="utf-8") as f:
+        f.writelines(filtered)
+
+    logger.info(f"[Proxy] Cleaned prefs.js proxy settings")
+
+
 def random_sleep(min_s: float = 0.5, max_s: float = 1.2):
     """随机等待，模拟真人节奏"""
     time.sleep(random.uniform(min_s, max_s))
@@ -237,6 +290,11 @@ class RuyiPageBrowser:
             f"port={self._port} | user_dir={self._user_dir} | "
             f"proxy={proxy_server or 'DIRECT'}"
         )
+
+        if not Config.USE_PROXY:
+            _clear_proxy_from_user_dir(self._user_dir)
+            clean_proxy_prefs(self._user_dir)
+
         self.page = launch(
             headless=self.headless,
             port=self._port,
