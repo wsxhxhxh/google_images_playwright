@@ -90,10 +90,10 @@ data_logger.propagate = False
 @contextmanager
 def log_timing(worker_id: int, action: str):
     start = time.time()
-    logger.info(f"[Worker-{worker_id}] START {action}")
+    logger.info(f"START {action}")
 
     try:
         yield
     finally:
         cost = round(time.time() - start, 2)
-        logger.info(f"[Worker-{worker_id}] END {action} | cost={cost}s")
+        logger.info(f"END {action} | cost={cost}s")

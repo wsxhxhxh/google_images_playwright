@@ -417,14 +417,13 @@ class RuyiPageBrowser:
         # 优先使用 name=q，更稳定
         with log_timing(self.worker_id, "Locating search box"):
             textarea = (
-                    self.page.ele("css:textarea.gLFyf", timeout=3)
-                    or self.page.ele("css:input[name='q']", timeout=3)
+                self.page.ele("css:textarea.gLFyf", timeout=3)
+                or self.page.ele("css:input[name='q']", timeout=3)
             )
 
         if not textarea:
-            raise RuntimeError(
-                f"[Worker-{self.worker_id}] Search box not found. KeyWord: {keyword}"
-            )
+            logger.error(f"[Worker-{self.worker_id}] Search box not found. KeyWord: {keyword}")
+            return None
 
         # 点击输入框
         with log_timing(self.worker_id, "click search box"):

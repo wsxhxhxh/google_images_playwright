@@ -36,19 +36,21 @@ class SearchTaskParams:
     atm: TokenManager
 
 
-
 def worker(worker_id: int, stop_event: threading.Event, atm: TokenManager, app: ProxyPool):
     logger.info(f"[Worker-{worker_id}] Start")
-
+    print_sleep = True
     try:
         while not stop_event.is_set():
 
             task_info = get_task_info(atm)
             if not task_info:
-                logger.info(f"not task_info, sleep 5s")
+                if print_sleep:
+                    logger.info(f"not task_info, sleep...")
+                print_sleep = False
                 stop_event.wait(5)
                 continue
 
+            print_sleep = True
             try:
                 params = SearchTaskParams(
                     worker_id=worker_id,
