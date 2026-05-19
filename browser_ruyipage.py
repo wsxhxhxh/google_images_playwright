@@ -681,7 +681,7 @@ def search_keyword_batch(params):
     多个 worker 可以安全地并发调用本函数。
     """
 
-    while True:
+    while Config.USE_PROXY:
         proxy = params.app.get_random_proxy()
         if proxy:
             params.proxies = proxy
