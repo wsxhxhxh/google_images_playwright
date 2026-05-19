@@ -300,7 +300,7 @@ class RuyiPageBrowser:
             port=self._port,
             user_dir=self._user_dir,
             browser_path=self.firefox_path,   # None 时 launch() 自动查找 Firefox
-            proxies=self.proxies["server"],
+            proxies=self.proxies.get('server', ""),
         )
         self.page.run_js("""
         document.documentElement.style.scrollBehavior = 'auto';
@@ -701,7 +701,7 @@ def search_keyword_batch(params):
         logger.info(
             f"[Worker-{params.worker_id}] initialize browser | "
             f"port={BASE_PORT + params.worker_id} | "
-            f"proxy={params.proxies['server'] if params.proxies else 'DIRECT'}"
+            f"proxy={params.proxies.get('server', 'DIRECT') if params.proxies else 'DIRECT'}"
         )
 
         with log_timing(params.worker_id, 'initialize browser'):
