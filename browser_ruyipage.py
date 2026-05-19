@@ -698,18 +698,12 @@ def search_keyword_batch(params):
     )
 
     try:
-        if Config.USE_PROXY:
-            logger.info(
-                f"[Worker-{params.worker_id}] initialize browser | "
-                f"port={BASE_PORT + params.worker_id} | "
-                f"proxy={params.proxies['server']}"
-            )
-        else:
-            logger.info(
-                f"[Worker-{params.worker_id}] initialize browser | "
-                f"port={BASE_PORT + params.worker_id} | "
-                f"proxy=None"
-            )
+        logger.info(
+            f"[Worker-{params.worker_id}] initialize browser | "
+            f"port={BASE_PORT + params.worker_id} | "
+            f"proxy={params.proxies['server'] if params.proxies else 'DIRECT'}"
+        )
+
         with log_timing(params.worker_id, 'initialize browser'):
             browser.initialize()
 
