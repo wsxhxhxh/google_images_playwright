@@ -38,6 +38,7 @@ def _request_text(
     headers=None,
     data=None,
     json_data=None,
+    verify=_TLS_VERIFY,
     timeout: int = _TLS_TIMEOUT,
 ) -> str:
     """
@@ -61,7 +62,7 @@ def _request_text(
                 headers=req_headers,
                 json=json_data,
                 timeout=timeout,
-                verify=_TLS_VERIFY,
+                verify=verify,
             )
         else:
             # data 走表单
@@ -71,7 +72,7 @@ def _request_text(
                 headers=req_headers,
                 data=data,
                 timeout=timeout,
-                verify=_TLS_VERIFY,
+                verify=verify,
             )
         text = resp.text if resp.text is not None else ""
         if resp.status_code >= 400:
@@ -171,7 +172,7 @@ def get_task_info(atm, session=None):
     headers = {"Authorization": f"Bearer {token}"}
     for attempt in range(10):
         try:
-            text = _request_text("GET", url, headers=headers, timeout=10)
+            text = _request_text("GET", url, headers=headers, timeout=10, verify=True)
             data = json.loads(text)
             res = data["data"]
             if res and isinstance(res, list):
