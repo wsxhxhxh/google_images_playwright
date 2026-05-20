@@ -392,6 +392,7 @@ class RuyiPageBrowser:
     def search_and_get_html(self, keyword_item: dict, params, first_run: bool = False) -> dict | None:
         self._require_page()
         keyword = keyword_item["name"]
+        kid = keyword_item["id"]
 
         # 只有第一次才打开 Google 图片首页
         if first_run:
@@ -495,7 +496,7 @@ class RuyiPageBrowser:
                                 "score": item.get("score"),
                                 "review": item.get("review"),
                             },
-                            "parent": params.task_id,
+                            "parent": kid,
                             "stat": -1,
                             "createdAt": str(datetime.datetime.now(datetime.timezone.utc)),
                         }
