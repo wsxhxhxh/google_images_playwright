@@ -531,7 +531,7 @@ class RuyiPageBrowser:
                     "score": item.get("score"),
                     "review": item.get("review"),
                 },
-                "parent": params.task_id,
+                "parent": kid,
                 "stat": -1,
                 "createdAt": str(datetime.datetime.now(datetime.timezone.utc)),
             }
