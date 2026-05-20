@@ -212,7 +212,7 @@ def send_shopify_product_to_api(*args):
     start_time = time.time()
     api_url = "https://downloadtemp.flsxxsmode.top/2026_api_importshopifydomain.php"
     try:
-        text = _request_text("POST", api_url, json_data=item, timeout=10)
+        text = _request_text("POST", api_url, json_data=item, timeout=10, verify=True)
         logger.info(f"send items result: {text}")
     except Exception as exc:
         traceback_details = traceback.format_exc()
