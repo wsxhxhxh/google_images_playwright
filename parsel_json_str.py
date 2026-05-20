@@ -132,7 +132,7 @@ def demo_with_real_data(real_data):
 
     result_list = [res for res in parsed_results if res]
     res = dedupe_by_image(result_list)
-    logger.info(f"找到: {len(res)}个产品 {res[:3]}...")
+    logger.info(f"find: {len(res)} products {res[:3]}...")
     return res
 
 
