@@ -20,6 +20,7 @@
 
 import io
 import os
+import re
 import sys
 import json
 import time
@@ -48,16 +49,15 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-sys.path.insert(0, r"C:\Users\XXX\Desktop\mypy\ruyipage")
+from ruyipage import Keys, FirefoxPage, FirefoxOptions
 
-# ★ 改用 launch()，不再导入 FirefoxPage / FirefoxOptions
-from ruyipage import launch, Keys
-
-from config import Config, logger, special_logger
+from config import Config
+from log import logger, special_logger, data_logger, log_timing
 from deal_product_func_async import deal_info, deal_shopify_product_info
 from parsel_json_str import demo_with_real_data, get_related_search, get_related_items
-from platform_api import send_items_to_api, send_shopify_product_to_api
-from dblocal import DbManager
+from platform_api import send_items_to_api, send_shopify_product_to_api, send_success_task, fetch_tasks_from_api, \
+    send_err_task
+
 
 
 # ──────────────────────────────────────────────────────────────
@@ -71,21 +71,152 @@ BASE_PORT = 9300
 # 每个 worker 的 user_dir 根目录（子目录按 worker_id 命名）
 # 例：C:\ruyipage_workers\worker_0\，worker_1\，…
 USER_DIR_ROOT = r"C:\ruyipage_workers"
-
+TARGET_PREFIX = "https://www.google.com/search?vet="
 # 启动错开延迟（秒）：worker_id * STAGGER_SEC
 # 防止多个 Firefox 同时启动时抢占 OS 资源导致初始化失败
 # 调小可加快启动速度，调大更稳定
 STAGGER_SEC = 2.0
 
-
 # ──────────────────────────────────────────────────────────────
 # 工具函数
 # ──────────────────────────────────────────────────────────────
+
+
+def launch(
+    *,
+    headless=False,
+    private=False,
+    xpath_picker=False,
+    action_visual=False,
+    port=9222,
+    browser_path=None,
+    user_dir=None,
+    close_on_exit=True,
+    window_size=(1280, 800),
+    timeout_base=10,
+    timeout_page_load=30,
+    timeout_script=30,
+    trace=False,
+    failure_snapshot=False,
+    snapshot_dir=None,
+    proxies=None,
+):
+    """快速启动 FirefoxPage（小白友好入口）。
+
+    Args:
+        headless: 是否无头
+        private: 是否启用 Firefox 私密浏览模式
+        xpath_picker: 是否启用页面 XPath 选择浮窗
+        action_visual: 是否启用鼠标行为可视化调试模式
+        port: 远程调试端口
+        browser_path: Firefox 可执行文件路径。
+            适用于 Firefox 安装在非默认目录时。
+        user_dir: 用户目录 / profile 目录。
+            适用于希望复用登录态、Cookie、扩展时。
+        close_on_exit: Python 程序退出时是否自动关闭浏览器。
+            默认 ``True``。仅对 ruyipage 自己启动的浏览器生效；
+            attach 已有浏览器时只断开连接，不主动关闭外部进程。
+        window_size: 窗口大小 (width, height)
+        timeout_base: 基础超时
+        timeout_page_load: 页面加载超时
+        timeout_script: 脚本执行超时
+        trace: 是否启用 debug trace 记录
+        failure_snapshot: 是否启用失败自动诊断快照
+        snapshot_dir: 诊断快照保存目录
+
+    Returns:
+        FirefoxPage
+
+    说明:
+        - 推荐新手优先使用 launch()。
+        - 内部自动创建 FirefoxOptions 并套用 quick_start 预设。
+        - 当你不确定该配置哪些参数时，先从 launch() 开始。
+    """
+    opts = FirefoxOptions()
+    opts.set_port(port).quick_start(
+        headless=headless,
+        private=private,
+        xpath_picker=xpath_picker,
+        action_visual=action_visual,
+        close_on_exit=close_on_exit,
+        window_size=window_size,
+        timeout_base=timeout_base,
+        timeout_page_load=timeout_page_load,
+        timeout_script=timeout_script,
+        trace=trace,
+        failure_snapshot=failure_snapshot,
+        snapshot_dir=snapshot_dir,
+    )
+    if browser_path:
+        opts.set_browser_path(browser_path)
+    if user_dir:
+        opts.set_user_dir(user_dir)
+    if proxies and Config.USE_PROXY:
+        opts.set_proxy(proxies)
+    return FirefoxPage(opts)
+
+def _clear_proxy_from_user_dir(user_dir: str) -> None:
+    """
+    Fully disable proxy settings.
+    """
+
+    user_js_path = os.path.join(user_dir, "user.js")
+
+    lines = [
+        'user_pref("network.proxy.type", 0);',
+
+        'user_pref("network.proxy.http", "");',
+        'user_pref("network.proxy.http_port", 0);',
+
+        'user_pref("network.proxy.ssl", "");',
+        'user_pref("network.proxy.ssl_port", 0);',
+
+        'user_pref("network.proxy.socks", "");',
+        'user_pref("network.proxy.socks_port", 0);',
+
+        'user_pref("network.proxy.socks_version", 5);',
+        'user_pref("network.proxy.socks_remote_dns", false);',
+
+        'user_pref("network.proxy.no_proxies_on", "");',
+    ]
+
+    with open(user_js_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+    logger.info(f"[Proxy] Proxy settings cleared: {user_js_path}")
+
+
+def clean_proxy_prefs(user_dir: str):
+    prefs_path = os.path.join(user_dir, "prefs.js")
+
+    if not os.path.exists(prefs_path):
+        return
+
+    with open(prefs_path, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.readlines()
+
+    filtered = []
+
+    for line in lines:
+        if "network.proxy" in line:
+            continue
+        filtered.append(line)
+
+    with open(prefs_path, "w", encoding="utf-8") as f:
+        f.writelines(filtered)
+
+    logger.info(f"[Proxy] Cleaned prefs.js proxy settings")
+
 
 def random_sleep(min_s: float = 0.5, max_s: float = 1.2):
     """随机等待，模拟真人节奏"""
     time.sleep(random.uniform(min_s, max_s))
 
+
+def extract_script_texts(html: str) -> str:
+    """只提取 <script> 标签内容拼接，体积比全 HTML 小 80% 以上"""
+    scripts = re.findall(r'<script[^>]*>(.*?)</script>', html, re.DOTALL)
+    return "\n".join(scripts)
 
 def _get_worker_user_dir(worker_id: int) -> str:
     """
@@ -95,71 +226,6 @@ def _get_worker_user_dir(worker_id: int) -> str:
     path = os.path.join(USER_DIR_ROOT, f"worker_{worker_id}")
     os.makedirs(path, exist_ok=True)
     return path
-
-
-def _write_proxy_to_user_dir(user_dir: str, proxy_server: str) -> None:
-    """
-    将代理配置写入 user_dir/user.js。
-    Firefox 每次启动时都会读取 user.js 并将其中的设置覆盖到 prefs.js，
-    这样无需依赖 FirefoxOptions.set_proxy()，launch() 也能使用代理。
-
-    支持格式：
-        socks5://host:port
-        socks5://user:pass@host:port
-        http://host:port
-    """
-    if not proxy_server:
-        return
-
-    p = urlparse(proxy_server)
-    scheme = (p.scheme or "").lower()
-    host   = p.hostname or ""
-    port   = p.port or 1080
-
-    lines = []
-
-    if scheme == "socks5":
-        lines = [
-            'user_pref("network.proxy.type", 1);',
-            f'user_pref("network.proxy.socks", "{host}");',
-            f'user_pref("network.proxy.socks_port", {port});',
-            'user_pref("network.proxy.socks_version", 5);',
-            # DNS 查询也走代理，防止 DNS 泄漏
-            'user_pref("network.proxy.socks_remote_dns", true);',
-        ]
-        # SOCKS5 带认证
-        if p.username:
-            lines += [
-                f'user_pref("network.proxy.socks_username", "{p.username}");',
-                f'user_pref("network.proxy.socks_password", "{p.password or ""}");',
-            ]
-
-    elif scheme == "http":
-        lines = [
-            'user_pref("network.proxy.type", 1);',
-            f'user_pref("network.proxy.http", "{host}");',
-            f'user_pref("network.proxy.http_port", {port});',
-            f'user_pref("network.proxy.ssl", "{host}");',
-            f'user_pref("network.proxy.ssl_port", {port});',
-        ]
-    else:
-        logger.warning(f"[_write_proxy] 不支持的代理协议: {scheme!r}，跳过写入")
-        return
-
-    user_js_path = os.path.join(user_dir, "user.js")
-    with open(user_js_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
-
-    logger.info(f"[_write_proxy] 代理已写入 {user_js_path} → {proxy_server}")
-
-
-def _clear_proxy_from_user_dir(user_dir: str) -> None:
-    """清除 user.js 中的代理配置（直连时调用）"""
-    user_js_path = os.path.join(user_dir, "user.js")
-    # 写入"无代理"配置
-    with open(user_js_path, "w", encoding="utf-8") as f:
-        f.write('user_pref("network.proxy.type", 0);\n')
-
 
 # ──────────────────────────────────────────────────────────────
 # 浏览器封装
@@ -211,17 +277,8 @@ class RuyiPageBrowser:
         # 步骤1：按 worker_id 错开启动时间
         if self.worker_id > 0:
             stagger = self.worker_id * STAGGER_SEC
-            logger.info(
-                f"[Worker-{self.worker_id}] 错开延迟 {stagger}s，"
-                f"防止多 worker 同时初始化冲突"
-            )
+            logger.info(f"[Worker-{self.worker_id}] delay {stagger}s")
             time.sleep(stagger)
-
-        # 步骤2：将代理写入该 worker 专属的 user.js
-        if proxy_server:
-            _write_proxy_to_user_dir(self._user_dir, proxy_server)
-        else:
-            _clear_proxy_from_user_dir(self._user_dir)
 
         # 步骤3：launch() 启动独立 Firefox 进程
         #   - port     : 每个 worker 独占一个端口，互不干扰
@@ -229,17 +286,37 @@ class RuyiPageBrowser:
         #   - headless : 根据配置决定是否无界面
         #   - browser_path: 可选，指定非默认 Firefox 路径
         logger.info(
-            f"[Worker-{self.worker_id}] 启动 Firefox | "
+            f"[Worker-{self.worker_id}] Start Firefox | "
             f"port={self._port} | user_dir={self._user_dir} | "
-            f"proxy={proxy_server or '直连'}"
+            f"proxy={proxy_server or 'DIRECT'}"
         )
+
+        if not Config.USE_PROXY:
+            _clear_proxy_from_user_dir(self._user_dir)
+            clean_proxy_prefs(self._user_dir)
+
         self.page = launch(
             headless=self.headless,
             port=self._port,
             user_dir=self._user_dir,
             browser_path=self.firefox_path,   # None 时 launch() 自动查找 Firefox
+            proxies=self.proxies.get('server', ""),
         )
-        logger.info(f"[Worker-{self.worker_id}] Firefox 启动成功")
+        self.page.run_js("""
+        document.documentElement.style.scrollBehavior = 'auto';
+        document.body.style.scrollBehavior = 'auto';
+        """)
+        self.page.run_js("""
+        const style = document.createElement('style');
+        style.innerHTML = `
+        * {
+          scroll-behavior: auto !important;
+        }
+        `;
+        document.head.appendChild(style);
+        """)
+        self.page.listen.start(TARGET_PREFIX)
+        logger.info(f"[Worker-{self.worker_id}] Firefox Start Success")
 
     # ── 导航 ──────────────────────────────────────────────────
     def goto(self, url: str, timeout: int = 30):
@@ -259,63 +336,57 @@ class RuyiPageBrowser:
             try:
                 btn = self.page.ele(f"css:{sel}", timeout=timeout)
                 if btn:
-                    random_sleep(0.4, 0.9)
+                    random_sleep(0.3, 0.7)
                     btn.click()
                     logger.info(f"[Worker-{self.worker_id}] 已点击 Cookie 同意按钮: {sel}")
-                    random_sleep(0.3, 0.7)
+                    random_sleep(0.3, 0.6)
                     return True
             except Exception:
                 continue
         logger.info(f"[Worker-{self.worker_id}] 未检测到 Cookie 弹窗")
         return False
 
-    # ── 搜索输入 ──────────────────────────────────────────────
-    def human_type_and_submit(self, keyword_item: dict, timeout: float = 10.0):
-        self._require_page()
-        keyword = keyword_item["name"]
+    def get_related_search_via_js(self) -> list:
+        return self.page.run_js("""
+            (() => {
+                const results = [];
+                document.querySelectorAll('h2 ~ a').forEach(a => {
+                    const divs = a.querySelectorAll('div');
+                    if (divs.length) results.push(divs[divs.length-1].innerText);
+                });
+                return results;
+            })();
+        """) or []
 
-        textarea = self.page.ele("css:textarea.gLFyf", timeout=timeout)
-        if not textarea:
-            raise RuntimeError(f"[Worker-{self.worker_id}] 找不到搜索框，关键词: {keyword}")
+    def get_script_texts_via_js(self) -> str:
+        return self.page.run_js("""
+            (() => {
+                return Array.from(document.querySelectorAll('script'))
+                    .map(s => s.textContent)
+                    .join('\\n');
+            })();
+        """) or ""
 
-        textarea.click()
-        random_sleep(0.1, 0.2)
+    def get_related_items_via_js(self) -> list:
+        return self.page.run_js(r"""
+            (() => {
+                const raw = Array.from(document.querySelectorAll('script'))
+                    .map(s => s.textContent).join('\n');
 
-        textarea.clear()
-        self.page.run_js(
-            f"document.querySelector('textarea.gLFyf').value = {json.dumps(keyword)};"
-        )
+                const decoded = raw.replace(/\\x([0-9A-Fa-f]{2})/g, (_, h) =>
+                    String.fromCharCode(parseInt(h, 16))
+                );
 
-        self.page.actions.key_down(Keys.ENTER).key_up(Keys.ENTER).perform()
-        random_sleep(0.8, 1.5)
-
-        logger.info(f"[Worker-{self.worker_id}] 已提交搜索: {keyword}")
-
-    # ── 滚动 ──────────────────────────────────────────────────
-    def human_scroll(self, steps: int = 6):
-        self._require_page()
-        for i in range(steps):
-            prev_height = self.page.run_js("return document.body.scrollHeight;")
-            self.page.run_js("window.scrollTo(0, document.body.scrollHeight);")
-            random_sleep(0.5, 1.0)
-
-            new_height = self.page.run_js("return document.body.scrollHeight;")
-            if new_height == prev_height:
-                logger.info(f"[Worker-{self.worker_id}] 已到达页面底部（滚动 {i + 1} 次）")
-                break
-            else:
-                logger.info(f"[Worker-{self.worker_id}] 页面高度: {prev_height} -> {new_height}")
-
-            if random.random() < 0.3:
-                back = random.randint(100, 300)
-                self.page.run_js(f"window.scrollBy(0, -{back});")
-                random_sleep(0.3, 0.6)
-
-    def slight_random_scroll(self):
-        self._require_page()
-        distance = random.randint(120, 260)
-        self.page.run_js(f"window.scrollBy(0, {distance});")
-        random_sleep(0.3, 0.8)
+                const re = /jsname="pIvPIe">(.*?)<\/span>/gs;
+                const results = [];
+                let m;
+                while ((m = re.exec(decoded)) !== null) {
+                    const text = m[1].trim();
+                    if (text) results.push(text);
+                }
+                return results;
+            })();
+        """) or []
 
     # ── 搜索主流程 ────────────────────────────────────────────
     def search_and_get_html(self, keyword_item: dict, params, first_run: bool = False) -> dict | None:
@@ -324,14 +395,15 @@ class RuyiPageBrowser:
 
         # 只有第一次才打开 Google 图片首页
         if first_run:
-            self.goto(
-                f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl"
-            )
-            random_sleep(0.5, 1.0)
+            with log_timing(self.worker_id, "goto google images"):
+                self.goto(
+                    f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl"
+                )
+            random_sleep(0.4, 0.8)
 
             current_url = self.page.url
             if "/sorry/" in current_url or "sorry" in current_url:
-                logger.warning(f"[Worker-{self.worker_id}] 检测到验证页面: {current_url}")
+                logger.warning(f"[Worker-{self.worker_id}] Verification code Page: {current_url}")
                 return None
 
             self.handle_cookie_consent()
@@ -339,23 +411,24 @@ class RuyiPageBrowser:
         # 每次都检查是否已经跳验证码
         current_url = self.page.url
         if "/sorry/" in current_url or "sorry" in current_url:
-            logger.warning(f"[Worker-{self.worker_id}] 当前已进入验证页面: {current_url}")
+            logger.warning(f"[Worker-{self.worker_id}] Verification code: {current_url}")
             return None
 
         # 优先使用 name=q，更稳定
-        textarea = (
+        with log_timing(self.worker_id, "Locating search box"):
+            textarea = (
                 self.page.ele("css:textarea.gLFyf", timeout=3)
                 or self.page.ele("css:input[name='q']", timeout=3)
-        )
-
-        if not textarea:
-            raise RuntimeError(
-                f"[Worker-{self.worker_id}] 找不到搜索框，关键词: {keyword}"
             )
 
+        if not textarea:
+            logger.error(f"[Worker-{self.worker_id}] Search box not found. KeyWord: {keyword}")
+            return None
+
         # 点击输入框
-        textarea.click()
-        random_sleep(0.2, 0.4)
+        with log_timing(self.worker_id, "click search box"):
+            textarea.click()
+        random_sleep(0.1, 0.2)
 
         # 清空输入框（最稳）
         try:
@@ -368,38 +441,76 @@ class RuyiPageBrowser:
             """)
         random_sleep(0.1, 0.2)
         # 输入关键词（ruyipage原生）
-        textarea.input(keyword)
+        with log_timing(self.worker_id, "input keyword"):
+            safe_keyword = keyword.replace("'", "\\'").replace("\n", " ")
+            self.page.run_js(f"""
+                    let el = document.querySelector('textarea.gLFyf') 
+                          || document.querySelector('input[name="q"]');
+                    if (el) {{
+                        el.value = '{safe_keyword}';
+                        el.dispatchEvent(new Event('input',  {{bubbles: true}}));
+                        el.dispatchEvent(new Event('change', {{bubbles: true}}));
+                    }}
+                """)
         random_sleep(0.1, 0.2)
         # 回车搜索
         self.page.actions.key_down(Keys.ENTER).key_up(Keys.ENTER).perform()
-        random_sleep(0.1, 0.2)
+        random_sleep(0.5, 1.0)
 
         # 搜索后再检查验证码
         current_url = self.page.url
         if "/sorry/" in current_url or "sorry" in current_url:
-            logger.warning(f"[Worker-{self.worker_id}] 搜索后检测到验证页面: {current_url}")
+            logger.warning(f"[Worker-{self.worker_id}] Verification code: {current_url}")
             return None
-
-        self.slight_random_scroll()
-        random_sleep(0.5, 1.0)
-
-        html = self.get_rendered_html()
-
-        if not html:
-            logger.warning(f"[Worker-{self.worker_id}] 未获取到页面 HTML，关键词: {keyword}")
-            return {
-                "html": "",
-                "new_datas": [],
-                "domains": [],
-                "related_search": [],
-                "related_items": [],
-            }
 
         new_datas = []
         domains = []
 
-        logger.info(f"[Worker-{self.worker_id}] 已获取渲染后 HTML，长度: {len(html)}")
-        result = demo_with_real_data(html)
+        for i in range(5):
+            with log_timing(self.worker_id, f"fetch xhr package {i}"):
+                self.page.run_js("window.scrollBy(0, 12000)")
+                packet = self.page.listen.wait(timeout=1)
+                if not packet:
+                    logger.info(f"   - scroll {i + 1} not new package")
+                    continue
+
+                logger.info(f"   - scroll {i + 1} fetch new package: [{packet.status}] {packet.url}")
+                text = packet.text
+                if text:
+                    result = demo_with_real_data(text)
+                    for item in result:
+                        if item.get("site", ".jp").endswith(".jp"):
+                            continue
+                        new_data = {
+                            "index": item.get("id"),
+                            "word": item.get("title"),
+                            "domain": item.get("site"),
+                            "link": item.get("url"),
+                            "image": item.get("image"),
+                            "info": {
+                                "desc": item.get("desc"),
+                                "brand": item.get("brand"),
+                                "price": item.get("price"),
+                                "currency": item.get("currency"),
+                                "score": item.get("score"),
+                                "review": item.get("review"),
+                            },
+                            "parent": params.task_id,
+                            "stat": -1,
+                            "createdAt": str(datetime.datetime.now(datetime.timezone.utc)),
+                        }
+
+                        new_datas.append(new_data)
+                        domains.append(item.get("site"))
+                    break
+                print("     this tackage not text, fetch next package...")
+
+        with log_timing(self.worker_id, "get script texts"):
+            script_text = self.get_script_texts_via_js()
+
+        logger.info(f"[Worker-{self.worker_id}] script text len: {len(script_text)}")
+        with log_timing(self.worker_id, "real data"):
+            result = demo_with_real_data(script_text)
 
         for item in result:
             if item.get("site", ".jp").endswith(".jp"):
@@ -427,11 +538,13 @@ class RuyiPageBrowser:
             new_datas.append(new_data)
             domains.append(item.get("site"))
 
-        related_search = get_related_search(html)
-        related_items = get_related_items(html)
+        related_search = self.get_related_search_via_js()
+        related_items = get_related_items(script_text)
+
+        logger.info("[debug]related search: " + str(related_search))
+        logger.info("[debug]related items: " + str(related_items))
 
         return {
-            "html": html,
             "new_datas": new_datas,
             "domains": domains,
             "related_search": related_search,
@@ -439,18 +552,18 @@ class RuyiPageBrowser:
         }
 
     def get_rendered_html(self) -> str:
-        """获取当前页面渲染完成后的 HTML"""
         self._require_page()
         try:
-            html = self.page.html
-            if callable(html):
-                html = html()
-            return html or ""
+            # page.html 会等 network idle，改用 JS 立即取当前 DOM
+            return self.page.run_js(
+                "return document.documentElement.outerHTML;"
+            ) or ""
         except Exception:
-            try:
-                return self.page.run_js("return document.documentElement.outerHTML;") or ""
-            except Exception:
-                return ""
+            return ""
+
+
+    def refresh(self):
+        self.page.refresh()
 
     # ── 关闭 ──────────────────────────────────────────────────
     def close(self):
@@ -458,9 +571,9 @@ class RuyiPageBrowser:
         if self.page:
             try:
                 self.page.quit()
-                logger.info(f"[Worker-{self.worker_id}] 浏览器已关闭")
+                logger.info(f"[Worker-{self.worker_id}] Browser Closed")
             except Exception as e:
-                logger.warning(f"[Worker-{self.worker_id}] 关闭浏览器时出错: {e}")
+                logger.warning(f"[Worker-{self.worker_id}] CloseBrowserException: {e}")
             finally:
                 self.page = None
 
@@ -472,15 +585,15 @@ class RuyiPageBrowser:
         self.close()
         try:
             shutil.rmtree(self._user_dir, ignore_errors=True)
-            logger.info(f"[Worker-{self.worker_id}] user_dir 已清理: {self._user_dir}")
+            logger.info(f"[Worker-{self.worker_id}] user_dir cleaned: {self._user_dir}")
         except Exception as e:
-            logger.warning(f"[Worker-{self.worker_id}] 清理 user_dir 失败: {e}")
+            logger.warning(f"[Worker-{self.worker_id}] clear user_dir Exception: {e}")
 
     # ── 内部工具 ──────────────────────────────────────────────
     def _require_page(self):
         if not self.page:
             raise RuntimeError(
-                f"[Worker-{self.worker_id}] 浏览器未初始化，请先调用 initialize()"
+                f"[Worker-{self.worker_id}] browser，please initialize()"
             )
 
 
@@ -500,10 +613,7 @@ def search_single_keyword(
 
     for attempt in range(max_retries):
         try:
-            logger.info(
-                f"[Worker-{params.worker_id}][{keyword}] "
-                f"开始搜索（尝试 {attempt + 1}/{max_retries}）"
-            )
+            logger.info(f"[{keyword}] Search Start(try {attempt + 1}/{max_retries})")
 
             aggregated_data = browser.search_and_get_html(
                 keyword_item,
@@ -515,15 +625,12 @@ def search_single_keyword(
                 params.app.set_fail(params.atm, params.proxies)
                 special_logger.info(
                     f"[work-{params.worker_id}][{params.task_id}][{keyword}] "
-                    f"{params.proxies.get('server', 'DIRECT') if params.proxies else 'DIRECT'} Verification code"
+                    f"{params.proxies['server']} Verification code"
                 )
                 return None
 
             if aggregated_data["new_datas"]:
-                logger.info(
-                    f"[Worker-{params.worker_id}][{keyword}] "
-                    f"处理 {len(aggregated_data['new_datas'])} 条数据"
-                )
+                logger.info(f"[{keyword}] processed {len(aggregated_data['new_datas'])} data")
 
                 products = deal_info(aggregated_data["new_datas"], params)
                 shopify_products = deal_shopify_product_info(params, products)
@@ -542,16 +649,17 @@ def search_single_keyword(
 
                 if products:
                     send_items_to_api(params, google_item)
-                    special_logger.info(f"[work-{params.worker_id}][{params.task_id}][{keyword}] {params.proxies.get('server', '') if params.proxies else ''} success")
-
+                else:
+                    send_success_task(params, [keyword_item])
                 if shopify_products:
                     send_shopify_product_to_api(params, shopify_products)
-
+                special_logger.info(
+                    f"[work-{params.worker_id}][{params.task_id}][{keyword}] {params.proxies['server']} success product {len(products)}")
             params.app.set_success(params.atm, params.proxies)
             return True
 
         except Exception as e:
-            logger.exception(f"搜索异常: {e}")
+            logger.exception(f"SearchException: {e}")
 
             if attempt < max_retries - 1:
                 time.sleep(3)
@@ -572,14 +680,13 @@ def search_keyword_batch(params):
     每个 worker_id 对应独立的 Firefox 进程（独立端口 + 独立 user_dir），
     多个 worker 可以安全地并发调用本函数。
     """
-    db: DbManager = params.db
 
-    while True:
+    while Config.USE_PROXY:
         proxy = params.app.get_random_proxy()
         if proxy:
             params.proxies = proxy
             break
-        logger.info(f"[Worker-{params.worker_id}] 暂无可用代理，等待 30s")
+        logger.info(f"[Worker-{params.worker_id}] not proxies，sleep 30s")
         time.sleep(30)
 
     browser = RuyiPageBrowser(
@@ -592,78 +699,78 @@ def search_keyword_batch(params):
 
     try:
         logger.info(
-            f"[Worker-{params.worker_id}] 初始化浏览器 | "
+            f"[Worker-{params.worker_id}] initialize browser | "
             f"port={BASE_PORT + params.worker_id} | "
-            f"proxy={params.proxies['server']}"
+            f"proxy={params.proxies.get('server', 'DIRECT') if params.proxies else 'DIRECT'}"
         )
-        browser.initialize()
+
+        with log_timing(params.worker_id, 'initialize browser'):
+            browser.initialize()
 
         success_count = 0
         fail_count    = 0
         captcha_hit   = False
         processed     = 0
-
+        tasks = fetch_tasks_from_api(params)
+        err_tasks = []
         first_run = True
-        while processed < params.datanum:
-            db_task = _fetch_task_with_refill(db, params)
+        while tasks:
+            keyword_item_str = tasks.pop(0)
 
-            if db_task is None:
-                logger.info(f"[Worker-{params.worker_id}] 补词后仍无任务，结束本批")
-                break
+            if type(keyword_item_str) == str:
+                keyword_item = json.loads(keyword_item_str)
+            else:
+                keyword_item = keyword_item_str
 
-            keyword_item = {
-                "id": db_task["keyword_id"],
-                "name": db_task["keyword"],
-            }
-
-            logger.info(f"[Worker-{params.worker_id}] 开始搜索: {keyword_item['name']}")
-
-            success = search_single_keyword(
-                browser,
-                keyword_item,
-                params,
-                first_run=first_run,
-            )
+            logger.info(f"[Worker-{params.worker_id}] Start Search: {keyword_item['name']}")
+            with log_timing(params.worker_id, f"keyword: {keyword_item['name']}"):
+                success = search_single_keyword(
+                    browser,
+                    keyword_item,
+                    params,
+                    first_run=first_run,
+                )
 
             # 第一次执行完后，以后都复用页面
             first_run = False
 
             processed += 1
 
+            if processed % 3 == 0:
+                browser.refresh()
+
             if success is True:
-                db.mark_success(db_task["id"])
                 success_count += 1
-
             elif success is None:
-                db.mark_failed(db_task["id"])
+                err_tasks.append(keyword_item)
                 logger.warning(
-                    f"[Worker-{params.worker_id}] 验证码或代理失败，立即关闭浏览器"
+                    f"[Worker-{params.worker_id}] Verification code or Proxy error，close browser"
                 )
-
                 captcha_hit = True
-
                 try:
                     browser.close()
                 except Exception:
                     pass
-
                 break
 
             else:
-                db.mark_failed(db_task["id"])
+                err_tasks.append(keyword_item)
                 fail_count += 1
-
-            db.auto_refresh_if_needed()
-
-        db.print_stats()
+        if err_tasks:
+            send_err_task(params, err_tasks)
         logger.info(
-            f"[Worker-{params.worker_id}] 本批结束 — "
-            f"处理: {processed}, 成功: {success_count}, 失败: {fail_count}"
-            + (" [验证码/代理中断]" if captcha_hit else "")
+            f"[Worker-{params.worker_id}] Batch End — "
+            f"processed: {processed}, success: {success_count}, fail: {fail_count}"
+            + (" [Verification Code/Proxy TimeOut]" if captcha_hit else "")
+        )
+        data_logger.info(
+            f"[Worker-{params.worker_id}] Batch End — "
+            f"processed: {processed}, success: {success_count}, fail: {fail_count}"
+            + (" [Verification Code/Proxy TimeOut]" if captcha_hit else "")
         )
 
     except Exception as e:
-        logger.exception(f"[Worker-{params.worker_id}] 批量搜索异常: {e}")
+        logger.exception(f"[Worker-{params.worker_id}] Batch Search Exception: {e}")
         raise
 
     finally:
@@ -672,48 +779,5 @@ def search_keyword_batch(params):
             # 若要彻底重置 profile 请改为 browser.close_and_clean()
             browser.close()
         except Exception as e:
-            logger.warning(f"[Worker-{params.worker_id}] 关闭浏览器失败: {e}")
+            logger.warning(f"[Worker-{params.worker_id}] Close browser Exception: {e}")
 
-
-# ──────────────────────────────────────────────────────────────
-# 补词逻辑（与原版完全一致）
-# ──────────────────────────────────────────────────────────────
-
-def _fetch_task_with_refill(db: DbManager, params, max_wait_rounds: int = 6) -> dict | None:
-    """
-    取一条任务。取不到时触发补词并等待，最多等 max_wait_rounds * 10s。
-    """
-    db_task = db.fetch_one_task_safe(task_id=params.task_id)
-    if db_task:
-        return db_task
-
-    logger.info(f"[Worker-{params.worker_id}] SQLite 暂无任务，触发补词...")
-
-    for round_i in range(1, max_wait_rounds + 1):
-        if db.fetch_func:
-            try:
-                db.fetch_func()
-            except Exception as e:
-                logger.error(f"[Worker-{params.worker_id}] 补词异常: {e}")
-
-        from main import get_current_task_info_snapshot
-        current_task_info = get_current_task_info_snapshot()
-        if current_task_info and current_task_info.get("id") != params.task_id:
-            logger.info(
-                f"[Worker-{params.worker_id}] task_id 更新: "
-                f"{params.task_id} -> {current_task_info.get('id')}"
-            )
-            params.task_id = current_task_info.get("id")
-
-        db_task = db.fetch_one_task_safe(task_id=params.task_id)
-        if db_task:
-            logger.info(f"[Worker-{params.worker_id}] 补词后取到任务（第 {round_i} 轮）")
-            return db_task
-
-        logger.info(
-            f"[Worker-{params.worker_id}] 补词后仍无任务，等待 10s "
-            f"({round_i}/{max_wait_rounds})"
-        )
-        time.sleep(10)
-
-    return None

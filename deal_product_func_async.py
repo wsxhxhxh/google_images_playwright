@@ -74,6 +74,8 @@ def deal_product_platform_type(purl, imageurl):
     """判断产品平台类型（同步函数，不需要改成异步）"""
     if '/cdn/shop/' in imageurl and '/products/' in purl:
         return 'shopify'
+    elif 'www.amazon' in purl:
+        return 'amazon'
     elif 'amazon.com' in purl:
         return 'amazon'
     elif 'ebay.com' in purl:

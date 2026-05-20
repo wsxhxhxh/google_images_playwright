@@ -9,7 +9,8 @@ from urllib import error
 
 import requests
 
-from config import logger, Config, data_logger
+from config import Config
+from log import logger, data_logger
 
 
 _SSL_CONTEXT = ssl._create_unverified_context()
@@ -208,7 +209,7 @@ def send_shopify_product_to_api(*args):
         raise TypeError("send_shopify_product_to_api expects (params, item) or (session, params, item)")
 
     start_time = time.time()
-    api_url = "https://downloadtemp.flsxxsmode.xyz/2026_api_importshopifydomain.php"
+    api_url = "https://downloadtemp.flsxxsmode.top/2026_api_importshopifydomain.php"
     try:
         text = _request_text("POST", api_url, json_data=item, timeout=10)
         logger.info(f"send items result: {text}")
@@ -233,7 +234,7 @@ def send_items_to_api(*args):
     try:
         items_backup = [item]
         data_to_send = {"param": [dict(entry) for entry in items_backup]}
-        data_logger.info(f"[{params.worker_id}] {data_to_send}")
+        # data_logger.info(f"[{params.worker_id}] {data_to_send}")
         url = (
             f"{params.agent_url}?action=setwordsV1&d={params.dbname}&db_user={params.dbuser}"
             f"&db_pass={params.dbpasswd}&secret_key={params.agent_key}"
@@ -251,18 +252,25 @@ def send_items_to_api(*args):
 
     logger.info(f"send items {params.dbname} to API use {time.time() - start_time:.2f} seconds")
 
+keyword_status_dic = {
+    0: 'Failed',
+    3: 'Success'
+}
 
-def send_err_task(params, tasks):
+def send_keyword_status(params, tasks, status):
     if not tasks:
-        logger.info(f"[Work-{params.worker_id}] 没有错误任务需要发送")
+        logger.info(f"[Work-{params.worker_id}] 没有任务需要发送")
         return True
 
     ids = []
     for task in tasks:
-        t = json.loads(task)
+        if type(task) == str:
+            t = json.loads(task)
+        else:
+            t = task
         ids.append(t["id"])
 
-    data = {"keyword_ids": ids, "status": 0}
+    data = {"keyword_ids": ids, "status": status}
     headers = {
         "User-Agent": "Apifox/1.0.0 (https://apifox.com)",
         "Content-Type": "application/json",
@@ -274,14 +282,21 @@ def send_err_task(params, tasks):
         f"{params.agent_url}?action=update_keyword_status&d={params.dbname}&db_user={params.dbuser}"
         f"&db_pass={params.dbpasswd}&secret_key={params.agent_key}"
     )
+
     try:
+        logger.info(f"[Work-{params.worker_id}] [task {params.task_id}] send {len(ids)} {keyword_status_dic[status]} tasks: {ids}")
         text = _request_text("POST", url, headers=headers, json_data=data, timeout=5)
-        logger.info(f"send tasks result: {text}")
+        logger.info(f"[Work-{params.worker_id}] send task res: {text}")
         return True
     except Exception as exc:
         logger.exception(f"[Work-{params.worker_id}] 发送错误任务异常: {exc}")
         return False
 
+def send_err_task(params, tasks):
+    send_keyword_status(params, tasks, 0)
+
+def send_success_task(params, tasks):
+    send_keyword_status(params, tasks, 3)
 
 def update_task_status(atm, session, task_id):
     token = atm.get_token()
@@ -290,7 +305,6 @@ def update_task_status(atm, session, task_id):
     data = {"status": 2, "token": token}
     text = _request_text("POST", url, headers=headers, data=data, timeout=10)
     logger.info(f"update tasks result: {text}")
-
 
 # 兼容旧名称
 AsyncTokenManager = TokenManager

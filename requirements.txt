@@ -23,7 +23,7 @@ python-dotenv==1.2.2
 python-socks==2.8.0
 requests==2.33.1
 rsa==4.9.1
-ruyiPage==1.2.0
+ruyiPage==1.2.11
 Telethon==1.42.0
 typing_extensions==4.15.0
 urllib3==2.6.3

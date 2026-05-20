@@ -1,6 +1,6 @@
 import asyncio
 
-from config import logger
+from log import logger
 
 
 

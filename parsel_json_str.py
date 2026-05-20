@@ -9,7 +9,7 @@ import json
 import re
 from lxml import etree
 from typing import Any, List, Tuple
-from config import logger
+from log import logger
 
 
 class RecursiveJSONExtractor:
@@ -38,23 +38,21 @@ class RecursiveJSONExtractor:
 
     @staticmethod
     def _recursive_parse(obj: Any) -> Any:
-        if isinstance(obj, str):
-            obj = obj.strip()
-            if (obj.startswith('[') or obj.startswith('{')) and len(obj) > 1:
-                try:
-                    parsed = json.loads(obj)
-                    return RecursiveJSONExtractor._recursive_parse(parsed)
-                except (json.JSONDecodeError, ValueError):
-                    return obj
-            return obj
-
+        # 非字符串直接递归，不走 loads 尝试
         if isinstance(obj, list):
             return [RecursiveJSONExtractor._recursive_parse(item) for item in obj]
-
         if isinstance(obj, dict):
-            return {key: RecursiveJSONExtractor._recursive_parse(value) for key, value in obj.items()}
+            return {k: RecursiveJSONExtractor._recursive_parse(v) for k, v in obj.items()}
+        if not isinstance(obj, str):
+            return obj
 
-        return obj
+        obj = obj.strip()
+        if len(obj) < 2 or obj[0] not in ('[', '{'):
+            return obj  # 不像 JSON，跳过 loads
+        try:
+            return RecursiveJSONExtractor._recursive_parse(json.loads(obj))
+        except (json.JSONDecodeError, ValueError):
+            return obj
 
     @staticmethod
     def extract_json_with_strings(text: str, recursive: bool = True) -> List[Tuple[str, Any]]:
