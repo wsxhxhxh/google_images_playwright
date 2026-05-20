@@ -515,7 +515,7 @@ def search_single_keyword(
                 params.app.set_fail(params.atm, params.proxies)
                 special_logger.info(
                     f"[work-{params.worker_id}][{params.task_id}][{keyword}] "
-                    f"{params.proxies['server']} Verification code"
+                    f"{params.proxies.get('server', 'DIRECT') if params.proxies else 'DIRECT'} Verification code"
                 )
                 return None
 
@@ -542,7 +542,7 @@ def search_single_keyword(
 
                 if products:
                     send_items_to_api(params, google_item)
-                    special_logger.info(f"[work-{params.worker_id}][{params.task_id}][{keyword}] {params.proxies['server']} success")
+                    special_logger.info(f"[work-{params.worker_id}][{params.task_id}][{keyword}] {params.proxies.get('server', '') if params.proxies else ''} success")
 
                 if shopify_products:
                     send_shopify_product_to_api(params, shopify_products)

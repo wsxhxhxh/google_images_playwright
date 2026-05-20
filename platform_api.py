@@ -153,12 +153,14 @@ class ProxyPool:
         logger.info(text)
 
     def set_success(self, atm, proxy: Dict):
-        logger.info(f"send proxy success: {proxy['server']}")
-        self.set_proxy_status(atm, proxy, 1)
+        if proxy:
+            logger.info(f"send proxy success: {proxy['server']}")
+            self.set_proxy_status(atm, proxy, 1)
 
     def set_fail(self, atm, proxy: Dict) -> None:
-        logger.info(f"send proxy failed: {proxy['server']}")
-        self.set_proxy_status(atm, proxy, 2)
+        if proxy:
+            logger.info(f"send proxy failed: {proxy['server']}")
+            self.set_proxy_status(atm, proxy, 2)
 
 
 def get_task_info(atm, session=None):
