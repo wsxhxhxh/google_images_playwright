@@ -1,5 +1,6 @@
 # main.py
 import signal
+import random
 import threading
 import time
 from dataclasses import dataclass
@@ -47,7 +48,8 @@ def worker(worker_id: int, stop_event: threading.Event, atm: TokenManager, app: 
                 if print_sleep:
                     logger.info(f"not task_info, sleep...")
                 print_sleep = False
-                stop_event.wait(5)
+                delay = random.uniform(4, 6)
+                stop_event.wait(delay)
                 continue
 
             print_sleep = True
