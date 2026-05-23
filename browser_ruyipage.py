@@ -761,16 +761,14 @@ def search_keyword_batch(params):
             if tasks:
                 err_tasks.extend(tasks)
             send_err_task(params, err_tasks)
-        logger.info(
+
+        log_msg = (
             f"[Worker-{params.worker_id}] Batch End — "
             f"processed: {processed}, success: {success_count}, fail: {fail_count}"
             + (" [Verification Code/Proxy TimeOut]" if captcha_hit else "")
         )
-        data_logger.info(
-            f"[Worker-{params.worker_id}] Batch End — "
-            f"processed: {processed}, success: {success_count}, fail: {fail_count}"
-            + (" [Verification Code/Proxy TimeOut]" if captcha_hit else "")
-        )
+        logger.info(log_msg)
+        data_logger.info(log_msg)
 
     except Exception as e:
         logger.exception(f"[Worker-{params.worker_id}] Batch Search Exception: {e}")
