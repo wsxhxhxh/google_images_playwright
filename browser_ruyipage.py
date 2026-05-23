@@ -758,6 +758,8 @@ def search_keyword_batch(params):
                 err_tasks.append(keyword_item)
                 fail_count += 1
         if err_tasks:
+            if tasks:
+                err_tasks.extend(tasks)
             send_err_task(params, err_tasks)
         logger.info(
             f"[Worker-{params.worker_id}] Batch End — "
