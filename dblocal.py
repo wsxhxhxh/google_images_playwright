@@ -2,7 +2,7 @@
 import sqlite3
 import threading
 from typing import Callable, Dict, List, Optional
-from config import logger, special_logger
+from log import logger, special_logger
 
 
 class DbManager:
@@ -278,3 +278,9 @@ class DbManager:
         )
         logger.info(msg)
         special_logger.info(msg)
+
+
+
+class RedisManager:
+
+    pass
