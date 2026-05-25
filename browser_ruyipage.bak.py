@@ -678,46 +678,6 @@ def search_single_keyword(
 # 批量搜索
 # ──────────────────────────────────────────────────────────────
 
-class PPP:
-
-    def __init__(self):
-        self.pool = []
-        self.refresh()
-
-    def refresh(self):
-        self.pool = [
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@65.111.31.85:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@104.207.50.2:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@209.50.185.176:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@216.26.228.87:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@216.26.231.98:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@209.50.178.9:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@45.3.36.148:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@104.207.56.43:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@45.3.37.39:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@216.26.249.50:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@216.26.242.247:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@104.207.62.187:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@45.3.36.231:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@65.111.3.130:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@104.207.39.11:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@216.26.240.58:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@45.3.52.24:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@104.207.48.205:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@104.207.51.214:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@216.26.235.31:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@216.26.238.37:1081"},
-            {"server": "hhjfh8l4tj6a:zoacdbzsxctzcav@216.26.231.253:1081"},
-        ]
-
-    def get_random_proxy(self):
-
-        if not self.pool:
-            self.refresh()
-        return self.pool.pop()
-
-pp = PPP()
-
 def search_keyword_batch(params):
     """
     批量搜索关键词。
@@ -727,8 +687,14 @@ def search_keyword_batch(params):
     多个 worker 可以安全地并发调用本函数。
     """
 
-    proxy = pp.get_random_proxy()
-    params.proxies = proxy
+    while Config.USE_PROXY:
+        proxy = params.app.get_random_proxy()
+        if proxy:
+            params.proxies = proxy
+            break
+        logger.info(f"[Worker-{params.worker_id}] not proxies，sleep 30s")
+        time.sleep(30)
+
     browser = RuyiPageBrowser(
         language_code=params.language_code,
         proxies=params.proxies,
