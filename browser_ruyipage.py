@@ -27,6 +27,7 @@ import time
 import shutil
 import random
 import datetime
+import tempfile
 from urllib.parse import urlparse
 
 # Windows 控制台 UTF-8 兼容
@@ -49,7 +50,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from ruyipage import Keys, FirefoxPage, FirefoxOptions
+from ruyipage import Keys, launch
 
 from config import Config
 from log import logger, special_logger, data_logger, log_timing
@@ -80,80 +81,6 @@ STAGGER_SEC = 2.0
 # ──────────────────────────────────────────────────────────────
 # 工具函数
 # ──────────────────────────────────────────────────────────────
-
-
-def launch(
-    *,
-    headless=False,
-    private=False,
-    xpath_picker=False,
-    action_visual=False,
-    port=9222,
-    browser_path=None,
-    user_dir=None,
-    close_on_exit=True,
-    window_size=(1280, 800),
-    timeout_base=10,
-    timeout_page_load=30,
-    timeout_script=30,
-    trace=False,
-    failure_snapshot=False,
-    snapshot_dir=None,
-    proxies=None,
-):
-    """快速启动 FirefoxPage（小白友好入口）。
-
-    Args:
-        headless: 是否无头
-        private: 是否启用 Firefox 私密浏览模式
-        xpath_picker: 是否启用页面 XPath 选择浮窗
-        action_visual: 是否启用鼠标行为可视化调试模式
-        port: 远程调试端口
-        browser_path: Firefox 可执行文件路径。
-            适用于 Firefox 安装在非默认目录时。
-        user_dir: 用户目录 / profile 目录。
-            适用于希望复用登录态、Cookie、扩展时。
-        close_on_exit: Python 程序退出时是否自动关闭浏览器。
-            默认 ``True``。仅对 ruyipage 自己启动的浏览器生效；
-            attach 已有浏览器时只断开连接，不主动关闭外部进程。
-        window_size: 窗口大小 (width, height)
-        timeout_base: 基础超时
-        timeout_page_load: 页面加载超时
-        timeout_script: 脚本执行超时
-        trace: 是否启用 debug trace 记录
-        failure_snapshot: 是否启用失败自动诊断快照
-        snapshot_dir: 诊断快照保存目录
-
-    Returns:
-        FirefoxPage
-
-    说明:
-        - 推荐新手优先使用 launch()。
-        - 内部自动创建 FirefoxOptions 并套用 quick_start 预设。
-        - 当你不确定该配置哪些参数时，先从 launch() 开始。
-    """
-    opts = FirefoxOptions()
-    opts.set_port(port).quick_start(
-        headless=headless,
-        private=private,
-        xpath_picker=xpath_picker,
-        action_visual=action_visual,
-        close_on_exit=close_on_exit,
-        window_size=window_size,
-        timeout_base=timeout_base,
-        timeout_page_load=timeout_page_load,
-        timeout_script=timeout_script,
-        trace=trace,
-        failure_snapshot=failure_snapshot,
-        snapshot_dir=snapshot_dir,
-    )
-    if browser_path:
-        opts.set_browser_path(browser_path)
-    if user_dir:
-        opts.set_user_dir(user_dir)
-    if proxies and Config.USE_PROXY:
-        opts.set_proxy(proxies)
-    return FirefoxPage(opts)
 
 def _clear_proxy_from_user_dir(user_dir: str) -> None:
     """
@@ -227,6 +154,14 @@ def _get_worker_user_dir(worker_id: int) -> str:
     os.makedirs(path, exist_ok=True)
     return path
 
+def write_proxy_fpfile(path: str, host: str, port: int, username: str, password: str) -> None:
+    """Write SOCKS5 proxy and auth fields to an fp file."""
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("socksauth.host:{}\n".format(host))
+        f.write("socksauth.port:{}\n".format(int(port)))
+        f.write("socksauth.username:{}\n".format(username))
+        f.write("socksauth.password:{}\n".format(password))
+
 # ──────────────────────────────────────────────────────────────
 # 浏览器封装
 # ──────────────────────────────────────────────────────────────
@@ -260,6 +195,67 @@ class RuyiPageBrowser:
         self.page           = None               # launch() 返回的 FirefoxPage 对象
         self._port          = BASE_PORT + worker_id
         self._user_dir      = _get_worker_user_dir(worker_id)
+        self._fpfile_path   = None
+
+    def _build_proxy_launch_args(self):
+        """
+        根据代理类型生成 launch 参数
+
+        支持：
+            socks5://host:port
+            socks5://user:pass@host:port
+            http://host:port
+        """
+
+        proxy_server = self.proxies.get("server", "")
+
+        if not proxy_server:
+            return {}
+
+        parsed = urlparse(proxy_server)
+
+        scheme = parsed.scheme.lower()
+
+        host = parsed.hostname
+        port = parsed.port
+        username = parsed.username
+        password = parsed.password
+
+        # --------------------------------
+        # SOCKS5 + 用户密码
+        # ruyipage 必须 fpfile
+        # --------------------------------
+        if scheme.startswith("socks5") and username and password:
+            fd, fpfile_path = tempfile.mkstemp(
+                suffix=f"-worker-{self.worker_id}-ruyipage-socks5.txt"
+            )
+
+            os.close(fd)
+
+            write_proxy_fpfile(
+                fpfile_path,
+                host=host,
+                port=port,
+                username=username,
+                password=password,
+            )
+
+            self._fpfile_path = fpfile_path
+
+            logger.info(
+                f"[Worker-{self.worker_id}] use socks5 auth fpfile: {fpfile_path}"
+            )
+
+            return {
+                "fpfile": fpfile_path
+            }
+
+        # --------------------------------
+        # 普通代理
+        # --------------------------------
+        return {
+            "proxy": proxy_server
+        }
 
     # ── 初始化 ────────────────────────────────────────────────
     def initialize(self):
@@ -295,12 +291,13 @@ class RuyiPageBrowser:
             _clear_proxy_from_user_dir(self._user_dir)
             clean_proxy_prefs(self._user_dir)
 
+        launch_args = self._build_proxy_launch_args()
         self.page = launch(
             headless=self.headless,
             port=self._port,
             user_dir=self._user_dir,
             browser_path=self.firefox_path,   # None 时 launch() 自动查找 Firefox
-            proxies=self.proxies.get('server', ""),
+            **launch_args,
         )
         self.page.run_js("""
         document.documentElement.style.scrollBehavior = 'auto';
@@ -578,6 +575,14 @@ class RuyiPageBrowser:
             finally:
                 self.page = None
 
+                if self._fpfile_path:
+                    try:
+                        os.remove(self._fpfile_path)
+                    except Exception:
+                        pass
+
+                    self._fpfile_path = None
+
     def close_and_clean(self):
         """
         关闭浏览器并彻底删除该 worker 的 user_dir。
@@ -781,4 +786,3 @@ def search_keyword_batch(params):
             browser.close()
         except Exception as e:
             logger.warning(f"[Worker-{params.worker_id}] Close browser Exception: {e}")
-
