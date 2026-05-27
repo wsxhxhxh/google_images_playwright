@@ -282,6 +282,14 @@ class DbManager:
         special_logger.info(msg)
 
 
+import threading
+import time
+from typing import List
+
+import redis
+from redis.exceptions import ConnectionError, TimeoutError
+
+
 class RedisSetReader:
     def __init__(
             self,
@@ -289,54 +297,91 @@ class RedisSetReader:
             port: int = 6379,
             password: str = "",
             db: int = 0,
-            expire_minutes: int = 10  # 10分钟过期
+            expire_minutes: int = 10
     ):
+
         # 线程安全连接池
         self.redis_pool = redis.ConnectionPool(
             host=host,
             port=port,
             password=password,
             db=db,
-            decode_responses=True  # 自动返回字符串
+
+            # 自动返回 str
+            decode_responses=True,
+
+            # ===== 关键配置 =====
+            socket_connect_timeout=5,   # 连接超时
+            socket_timeout=5,           # 读写超时
+
+            # 自动健康检查
+            health_check_interval=30,
+
+            # 超时自动重试
+            retry_on_timeout=True,
+
+            # 保持 TCP 长连接
+            socket_keepalive=True,
+
+            # 最大连接数
+            max_connections=50,
         )
+
         self.expire_seconds = expire_minutes * 60
         self.lock = threading.Lock()
 
     def _get_conn(self):
-        # 获取线程安全连接
         return redis.Redis(connection_pool=self.redis_pool)
 
-    def _get_key(self, task_id: str| int) -> str:
-        # 每个 task_id 一个独立集合
+    def _get_key(self, task_id: str | int) -> str:
         return f"task:set:{task_id}"
 
-    # ====================== 添加数据（你写入时用） ======================
-    def add(self, task_id: str| int, value: str) -> bool:
-        """添加字符串，自动10分钟过期"""
+    # ====================== 通用重试 ======================
+
+    def _retry(self, func, *args, **kwargs):
+        """
+        Redis 断线自动重试
+        """
+        last_error = None
+
+        for _ in range(3):
+            try:
+                return func(*args, **kwargs)
+
+            except (ConnectionError, TimeoutError) as e:
+                last_error = e
+                time.sleep(1)
+
+        raise last_error
+
+    # ====================== 添加数据 ======================
+
+    def add(self, task_id: str | int, value: str) -> bool:
         r = self._get_conn()
         key = self._get_key(task_id)
+
         with self.lock:
-            r.sadd(key, value)
-            r.expire(key, self.expire_seconds)
+            self._retry(r.sadd, key, value)
+            self._retry(r.expire, key, self.expire_seconds)
+
         return True
 
-    def add_batch(self, task_id: str| int, values: List[str]) -> int:
-        """批量添加"""
+    def add_batch(self, task_id: str | int, values: List[str]) -> int:
         if not values:
             return 0
+
         r = self._get_conn()
         key = self._get_key(task_id)
+
         with self.lock:
-            cnt = r.sadd(key, *values)
-            r.expire(key, self.expire_seconds)
+            cnt = self._retry(r.sadd, key, *values)
+            self._retry(r.expire, key, self.expire_seconds)
+
         return cnt
 
-    # ====================== ✅ 核心：随机读取 N 条（不删除！） ======================
-    def random_get(self, task_id: str| int, count: int) -> List[str]:
-        """
-        随机获取 count 条数据
-        🔥 不会删除原数据！！！
-        """
+    # ====================== 随机读取 ======================
+
+    def random_get(self, task_id: str | int, count: int) -> List[str]:
         if count <= 0:
             return []
 
@@ -344,15 +389,15 @@ class RedisSetReader:
         key = self._get_key(task_id)
 
         with self.lock:
-            # 随机取，不删除（关键！）
-            data = r.srandmember(key, count)
+            data = self._retry(r.srandmember, key, count)
 
         return list(data)
 
-    # ====================== 工具方法 ======================
-    def count(self, task_id: str| int) -> int:
-        """获取集合大小"""
-        return self._get_conn().scard(self._get_key(task_id))
+    # ====================== 统计 ======================
+
+    def count(self, task_id: str | int) -> int:
+        r = self._get_conn()
+        return self._retry(r.scard, self._get_key(task_id))
 
 
 if __name__ == '__main__':
