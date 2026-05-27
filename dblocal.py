@@ -402,17 +402,13 @@ class RedisSetReader:
 
 if __name__ == '__main__':
     rsssss = RedisSetReader()
-    print("总数量：", rsssss.count(12))
-    rsssss.add(12, "hello")
-    print("总数量：", rsssss.count(12))
-    rsssss.add_batch(12, ["hi", "lihua", "kangkang"])
 
-    result = rsssss.random_get(12, 3)
+    result = rsssss.random_get(235, 3)
     print("随机读取到：", result)
 
-    result2 = rsssss.random_get(12, 5)
+    result2 = rsssss.random_get(235, 5)
     print("再读一次：", result2)
 
-    print("总数量：", rsssss.count(12))
+    print("总数量：", rsssss.count(235))
 
 
