@@ -2,8 +2,10 @@
 import sqlite3
 import threading
 from typing import Callable, Dict, List, Optional
-from log import logger, special_logger
 
+import redis
+
+from log import logger, special_logger
 
 class DbManager:
     def __init__(
@@ -280,7 +282,92 @@ class DbManager:
         special_logger.info(msg)
 
 
+class RedisSetReader:
+    def __init__(
+            self,
+            host: str = "127.0.0.1",
+            port: int = 6379,
+            password: str = "",
+            db: int = 0,
+            expire_minutes: int = 10  # 10分钟过期
+    ):
+        # 线程安全连接池
+        self.redis_pool = redis.ConnectionPool(
+            host=host,
+            port=port,
+            password=password,
+            db=db,
+            decode_responses=True  # 自动返回字符串
+        )
+        self.expire_seconds = expire_minutes * 60
+        self.lock = threading.Lock()
 
-class RedisManager:
+    def _get_conn(self):
+        # 获取线程安全连接
+        return redis.Redis(connection_pool=self.redis_pool)
 
-    pass
+    def _get_key(self, task_id: str| int) -> str:
+        # 每个 task_id 一个独立集合
+        return f"task:set:{task_id}"
+
+    # ====================== 添加数据（你写入时用） ======================
+    def add(self, task_id: str| int, value: str) -> bool:
+        """添加字符串，自动10分钟过期"""
+        r = self._get_conn()
+        key = self._get_key(task_id)
+        with self.lock:
+            r.sadd(key, value)
+            r.expire(key, self.expire_seconds)
+        return True
+
+    def add_batch(self, task_id: str| int, values: List[str]) -> int:
+        """批量添加"""
+        if not values:
+            return 0
+        r = self._get_conn()
+        key = self._get_key(task_id)
+        with self.lock:
+            cnt = r.sadd(key, *values)
+            r.expire(key, self.expire_seconds)
+        return cnt
+
+    # ====================== ✅ 核心：随机读取 N 条（不删除！） ======================
+    def random_get(self, task_id: str| int, count: int) -> List[str]:
+        """
+        随机获取 count 条数据
+        🔥 不会删除原数据！！！
+        """
+        if count <= 0:
+            return []
+
+        r = self._get_conn()
+        key = self._get_key(task_id)
+
+        with self.lock:
+            # 随机取，不删除（关键！）
+            data = r.srandmember(key, count)
+
+        return list(data)
+
+    # ====================== 工具方法 ======================
+    def count(self, task_id: str| int) -> int:
+        """获取集合大小"""
+        return self._get_conn().scard(self._get_key(task_id))
+
+
+if __name__ == '__main__':
+    rsssss = RedisSetReader()
+    print("总数量：", rsssss.count(12))
+    rsssss.add(12, "hello")
+    print("总数量：", rsssss.count(12))
+    rsssss.add_batch(12, ["hi", "lihua", "kangkang"])
+
+    result = rsssss.random_get(12, 3)
+    print("随机读取到：", result)
+
+    result2 = rsssss.random_get(12, 5)
+    print("再读一次：", result2)
+
+    print("总数量：", rsssss.count(12))
+
+

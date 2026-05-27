@@ -8,6 +8,7 @@ from typing import Dict, List
 
 from browser_ruyipage import search_keyword_batch
 from config import Config
+from dblocal import RedisSetReader
 from log import logger
 from platform_api import TokenManager, ProxyPool, get_task_info
 
@@ -35,6 +36,7 @@ class SearchTaskParams:
     collect_platform_type: List[str]
     app: ProxyPool
     atm: TokenManager
+    rsr: RedisSetReader
 
 
 def worker(worker_id: int, stop_event: threading.Event, atm: TokenManager, app: ProxyPool):
@@ -77,6 +79,7 @@ def worker(worker_id: int, stop_event: threading.Event, atm: TokenManager, app: 
                     collect_platform_type=task_info.get("collect_platform_type"),
                     app=app,
                     atm=atm,
+                    rsr=rsr,
                 )
 
                 search_keyword_batch(params)
@@ -119,6 +122,7 @@ def main():
 if __name__ == '__main__':
     app = ProxyPool()
     atm = TokenManager()
+    rsr = RedisSetReader()
     try:
         main()
     except (KeyboardInterrupt, SystemExit):
