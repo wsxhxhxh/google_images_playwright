@@ -130,7 +130,7 @@ def deal_info(productlist, params):
     # 第一步：构建描述列表（可以并行处理）
     for item in productlist:
         description = {
-            "desc": "REDIS" + str(params.worker_id) + deal_product_info_desc(get_dic(item, "info"), "desc"),
+            "desc": deal_product_info_desc(get_dic(item, "info"), "desc"),
             "image": get_dic(item, "image"),
             "name": get_dic(item, "word"),
             "purl": get_dic(item, "link"),

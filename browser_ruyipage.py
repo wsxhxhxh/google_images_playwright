@@ -58,8 +58,6 @@ from parsel_json_str import demo_with_real_data, get_related_search, get_related
 from platform_api import send_items_to_api, send_shopify_product_to_api, send_success_task, fetch_tasks_from_api, \
     send_err_task
 
-
-
 # ──────────────────────────────────────────────────────────────
 # 多 Worker 并发配置
 # ──────────────────────────────────────────────────────────────
@@ -77,29 +75,30 @@ TARGET_PREFIX = "https://www.google.com/search?vet="
 # 调小可加快启动速度，调大更稳定
 STAGGER_SEC = 2.0
 
+
 # ──────────────────────────────────────────────────────────────
 # 工具函数
 # ──────────────────────────────────────────────────────────────
 
 
 def launch(
-    *,
-    headless=False,
-    private=False,
-    xpath_picker=False,
-    action_visual=False,
-    port=9222,
-    browser_path=None,
-    user_dir=None,
-    close_on_exit=True,
-    window_size=(1280, 800),
-    timeout_base=10,
-    timeout_page_load=30,
-    timeout_script=30,
-    trace=False,
-    failure_snapshot=False,
-    snapshot_dir=None,
-    proxies=None,
+        *,
+        headless=False,
+        private=False,
+        xpath_picker=False,
+        action_visual=False,
+        port=9222,
+        browser_path=None,
+        user_dir=None,
+        close_on_exit=True,
+        window_size=(1280, 800),
+        timeout_base=10,
+        timeout_page_load=30,
+        timeout_script=30,
+        trace=False,
+        failure_snapshot=False,
+        snapshot_dir=None,
+        proxies=None,
 ):
     """快速启动 FirefoxPage（小白友好入口）。
 
@@ -154,6 +153,7 @@ def launch(
     if proxies and Config.USE_PROXY:
         opts.set_proxy(proxies)
     return FirefoxPage(opts)
+
 
 def _clear_proxy_from_user_dir(user_dir: str) -> None:
     """
@@ -218,6 +218,7 @@ def extract_script_texts(html: str) -> str:
     scripts = re.findall(r'<script[^>]*>(.*?)</script>', html, re.DOTALL)
     return "\n".join(scripts)
 
+
 def _get_worker_user_dir(worker_id: int) -> str:
     """
     返回该 worker 专属的 Firefox profile 目录路径。
@@ -226,6 +227,7 @@ def _get_worker_user_dir(worker_id: int) -> str:
     path = os.path.join(USER_DIR_ROOT, f"worker_{worker_id}")
     os.makedirs(path, exist_ok=True)
     return path
+
 
 # ──────────────────────────────────────────────────────────────
 # 浏览器封装
@@ -252,14 +254,14 @@ class RuyiPageBrowser:
             firefox_path: str = None,
             worker_id: int = 0,
     ):
-        self.language_code  = language_code
-        self.proxies        = proxies or {}      # {"server": "socks5://host:port"}
-        self.headless       = headless
-        self.firefox_path   = firefox_path
-        self.worker_id      = worker_id
-        self.page           = None               # launch() 返回的 FirefoxPage 对象
-        self._port          = BASE_PORT + worker_id
-        self._user_dir      = _get_worker_user_dir(worker_id)
+        self.language_code = language_code
+        self.proxies = proxies or {}  # {"server": "socks5://host:port"}
+        self.headless = headless
+        self.firefox_path = firefox_path
+        self.worker_id = worker_id
+        self.page = None  # launch() 返回的 FirefoxPage 对象
+        self._port = BASE_PORT + worker_id
+        self._user_dir = _get_worker_user_dir(worker_id)
 
     # ── 初始化 ────────────────────────────────────────────────
     def initialize(self):
@@ -299,7 +301,7 @@ class RuyiPageBrowser:
             headless=self.headless,
             port=self._port,
             user_dir=self._user_dir,
-            browser_path=self.firefox_path,   # None 时 launch() 自动查找 Firefox
+            browser_path=self.firefox_path,  # None 时 launch() 自动查找 Firefox
             proxies=self.proxies.get('server', ""),
         )
         self.page.run_js("""
@@ -418,8 +420,8 @@ class RuyiPageBrowser:
         # 优先使用 name=q，更稳定
         with log_timing(self.worker_id, "Locating search box"):
             textarea = (
-                self.page.ele("css:textarea.gLFyf", timeout=3)
-                or self.page.ele("css:input[name='q']", timeout=3)
+                    self.page.ele("css:textarea.gLFyf", timeout=3)
+                    or self.page.ele("css:input[name='q']", timeout=3)
             )
 
         if not textarea:
@@ -467,44 +469,7 @@ class RuyiPageBrowser:
         new_datas = []
         domains = []
 
-        for i in range(5):
-            with log_timing(self.worker_id, f"fetch xhr package {i}"):
-                self.page.run_js("window.scrollBy(0, 12000)")
-                packet = self.page.listen.wait(timeout=1)
-                if not packet:
-                    logger.info(f"   - scroll {i + 1} not new package")
-                    continue
-
-                logger.info(f"   - scroll {i + 1} fetch new package: [{packet.status}] {packet.url}")
-                text = packet.text
-                if text:
-                    result = demo_with_real_data(text)
-                    for item in result:
-                        if item.get("site", ".jp").endswith(".jp"):
-                            continue
-                        new_data = {
-                            "index": item.get("id"),
-                            "word": item.get("title"),
-                            "domain": item.get("site"),
-                            "link": item.get("url"),
-                            "image": item.get("image"),
-                            "info": {
-                                "desc": item.get("desc"),
-                                "brand": item.get("brand"),
-                                "price": item.get("price"),
-                                "currency": item.get("currency"),
-                                "score": item.get("score"),
-                                "review": item.get("review"),
-                            },
-                            "parent": kid,
-                            "stat": -1,
-                            "createdAt": str(datetime.datetime.now(datetime.timezone.utc)),
-                        }
-
-                        new_datas.append(new_data)
-                        domains.append(item.get("site"))
-                    break
-                print("     this tackage not text, fetch next package...")
+        random_sleep(0.8, 1.2)
 
         with log_timing(self.worker_id, "get script texts"):
             script_text = self.get_script_texts_via_js()
@@ -562,7 +527,6 @@ class RuyiPageBrowser:
         except Exception:
             return ""
 
-
     def refresh(self):
         self.page.refresh()
 
@@ -602,11 +566,11 @@ class RuyiPageBrowser:
 # 单关键词搜索
 # ──────────────────────────────────────────────────────────────
 def search_single_keyword(
-    browser: RuyiPageBrowser,
-    keyword_item: dict,
-    params,
-    first_run: bool = False,
-    max_retries: int = 2,
+        browser: RuyiPageBrowser,
+        keyword_item: dict,
+        params,
+        first_run: bool = False,
+        max_retries: int = 2,
 ):
     keyword = keyword_item["name"]
     keyid = keyword_item["id"]
@@ -669,6 +633,7 @@ def search_single_keyword(
 
     return False
 
+
 # ──────────────────────────────────────────────────────────────
 # 批量搜索
 # ──────────────────────────────────────────────────────────────
@@ -709,9 +674,9 @@ def search_keyword_batch(params):
             browser.initialize()
 
         success_count = 0
-        fail_count    = 0
-        captcha_hit   = False
-        processed     = 0
+        fail_count = 0
+        captcha_hit = False
+        processed = 0
         tasks = fetch_tasks_from_api(params)
         err_tasks = []
         first_run = True
@@ -763,9 +728,9 @@ def search_keyword_batch(params):
             send_err_task(params, err_tasks)
 
         log_msg = (
-            f"[Worker-{params.worker_id}] Batch End — "
-            f"processed: {processed}, success: {success_count}, fail: {fail_count}"
-            + (" [Verification Code/Proxy TimeOut]" if captcha_hit else "")
+                f"[Worker-{params.worker_id}] Batch End — "
+                f"processed: {processed}, success: {success_count}, fail: {fail_count}"
+                + (" [Verification Code/Proxy TimeOut]" if captcha_hit else "")
         )
         logger.info(log_msg)
         data_logger.info(log_msg)
@@ -781,4 +746,3 @@ def search_keyword_batch(params):
             browser.close()
         except Exception as e:
             logger.warning(f"[Worker-{params.worker_id}] Close browser Exception: {e}")
-
