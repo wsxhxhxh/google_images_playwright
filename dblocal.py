@@ -1,9 +1,12 @@
 # dblocal.py
+import random
+import time
 import sqlite3
 import threading
 from typing import Callable, Dict, List, Optional
 
 import redis
+from redis.exceptions import ConnectionError, TimeoutError
 
 from log import logger, special_logger
 
@@ -282,123 +285,90 @@ class DbManager:
         special_logger.info(msg)
 
 
-import threading
-import time
-from typing import List
-
-import redis
-from redis.exceptions import ConnectionError, TimeoutError
-
-
 class RedisSetReader:
+
     def __init__(
             self,
-            host: str = "127.0.0.1",
-            port: int = 6379,
-            password: str = "",
-            db: int = 0,
-            expire_minutes: int = 10
+            host="127.0.0.1",
+            port=6379,
+            password="",
+            db=0,
+            expire_minutes=10
     ):
 
-        # 线程安全连接池
-        self.redis_pool = redis.ConnectionPool(
+        self.redis = redis.Redis(
             host=host,
             port=port,
             password=password,
             db=db,
-
-            # 自动返回 str
-            decode_responses=True,
-
-            # ===== 关键配置 =====
-            socket_connect_timeout=5,   # 连接超时
-            socket_timeout=5,           # 读写超时
-
-            # 自动健康检查
-            health_check_interval=30,
-
-            # 超时自动重试
-            retry_on_timeout=True,
-
-            # 保持 TCP 长连接
-            socket_keepalive=True,
-
-            # 最大连接数
-            max_connections=50,
+            decode_responses=True
         )
 
         self.expire_seconds = expire_minutes * 60
-        self.lock = threading.Lock()
 
-    def _get_conn(self):
-        return redis.Redis(connection_pool=self.redis_pool)
+    def _get_key(self, task_id):
+        return f"task:zset:{task_id}"
 
-    def _get_key(self, task_id: str | int) -> str:
-        return f"task:set:{task_id}"
+    # ================= 添加 =================
 
-    # ====================== 通用重试 ======================
+    def add(self, task_id, value):
 
-    def _retry(self, func, *args, **kwargs):
-        """
-        Redis 断线自动重试
-        """
-        last_error = None
+        now = int(time.time())
 
-        for _ in range(3):
-            try:
-                return func(*args, **kwargs)
+        expire_at = now + self.expire_seconds
 
-            except (ConnectionError, TimeoutError) as e:
-                last_error = e
-                time.sleep(1)
-
-        raise last_error
-
-    # ====================== 添加数据 ======================
-
-    def add(self, task_id: str | int, value: str) -> bool:
-        r = self._get_conn()
         key = self._get_key(task_id)
 
-        with self.lock:
-            self._retry(r.sadd, key, value)
-            self._retry(r.expire, key, self.expire_seconds)
+        self.redis.zadd(
+            key,
+            {value: expire_at}
+        )
 
-        return True
+    # ================= 清理过期 =================
 
-    def add_batch(self, task_id: str | int, values: List[str]) -> int:
-        if not values:
-            return 0
+    def _clean_expired(self, key):
 
-        r = self._get_conn()
+        now = int(time.time())
+
+        self.redis.zremrangebyscore(
+            key,
+            0,
+            now
+        )
+
+    # ================= 随机获取 =================
+
+    def random_get(self, task_id, count=20):
+
         key = self._get_key(task_id)
 
-        with self.lock:
-            cnt = self._retry(r.sadd, key, *values)
-            self._retry(r.expire, key, self.expire_seconds)
+        # 先删过期
+        self._clean_expired(key)
 
-        return cnt
+        # 获取全部有效数据
+        data = self.redis.zrange(
+            key,
+            0,
+            -1
+        )
 
-    # ====================== 随机读取 ======================
-
-    def random_get(self, task_id: str | int, count: int) -> List[str]:
-        if count <= 0:
+        if not data:
             return []
 
-        r = self._get_conn()
+        if len(data) <= count:
+            return data
+
+        return random.sample(data, count)
+
+    # ================= 数量 =================
+
+    def count(self, task_id):
+
         key = self._get_key(task_id)
 
-        with self.lock:
-            data = self._retry(r.srandmember, key, count)
+        self._clean_expired(key)
 
-        return list(data)
-
-    # ====================== 统计 ======================
-
-    def count(self, task_id: str | int) -> int:
-        r = self._get_conn()
-        return self._retry(r.scard, self._get_key(task_id))
-
+        return self.redis.zcard(key)
 
 if __name__ == '__main__':
     rsssss = RedisSetReader()
