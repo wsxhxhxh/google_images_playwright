@@ -2,6 +2,7 @@ import re
 import json
 import random
 import urllib
+from log import log_timing
 
 
 def select_random_elements(input_list, count):
@@ -128,23 +129,25 @@ def deal_info(productlist, params):
     datas = []
 
     # 第一步：构建描述列表（可以并行处理）
-    for item in productlist:
-        description = {
-            "desc": deal_product_info_desc(get_dic(item, "info"), "desc"),
-            "image": get_dic(item, "image"),
-            "name": get_dic(item, "word"),
-            "purl": get_dic(item, "link"),
-            "type": deal_product_platform_type(get_dic(item, "link"), get_dic(item, "image")),
-        }
-        params.rsr.add(params.task_id, json.dumps(description, ensure_ascii=False))
-    ok_product = 0
+    with log_timing(params.worker_id, "add product redis"):
+        for item in productlist:
+            description = {
+                "desc": deal_product_info_desc(get_dic(item, "info"), "desc"),
+                "image": get_dic(item, "image"),
+                "name": get_dic(item, "word"),
+                "purl": get_dic(item, "link"),
+                "type": deal_product_platform_type(get_dic(item, "link"), get_dic(item, "image")),
+            }
+            params.rsr.add(params.task_id, json.dumps(description, ensure_ascii=False))
+
 
     # 第二步：处理产品数据
+    ok_product = 0
     for product in productlist:
         if ok_product >= params.usenum:
             continue
-
-        description = json.dumps([json.loads(_js) for _js in params.rsr.random_get(params.task_id, params.desimagenum)])
+        with log_timing(params.worker_id, "get redis random product"):
+            description = json.dumps([json.loads(_js) for _js in params.rsr.random_get(params.task_id, params.desimagenum)])
         link = get_dic(product, "link")
         info = deal_product_info(get_dic(product, "info"), link, get_dic(product, "image"))
 
