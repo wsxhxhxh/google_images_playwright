@@ -595,9 +595,10 @@ def search_single_keyword(
 
             if aggregated_data["new_datas"]:
                 logger.info(f"[{keyword}] processed {len(aggregated_data['new_datas'])} data")
-
-                products = deal_info(aggregated_data["new_datas"], params)
-                shopify_products = deal_shopify_product_info(params, products)
+                with log_timing(params.worker_id, 'deal google product info'):
+                    products = deal_info(aggregated_data["new_datas"], params)
+                with log_timing(params.worker_id, 'deal shopify product info'):
+                    shopify_products = deal_shopify_product_info(params, products)
 
                 google_item = {
                     "id": keyid,
@@ -612,11 +613,13 @@ def search_single_keyword(
                 }
 
                 if products:
-                    send_items_to_api(params, google_item)
+                    with log_timing(params.worker_id, 'send google product'):
+                        send_items_to_api(params, google_item)
                 else:
                     send_success_task(params, [keyword_item])
                 if shopify_products:
-                    send_shopify_product_to_api(params, shopify_products)
+                    with log_timing(params.worker_id, 'send shopify product'):
+                        send_shopify_product_to_api(params, shopify_products)
                 special_logger.info(
                     f"[work-{params.worker_id}][{params.task_id}][{keyword}] {proxy_server} success product {len(products)}")
             params.app.set_success(params.atm, params.proxies)
