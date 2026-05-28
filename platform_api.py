@@ -298,7 +298,7 @@ class KeywordIpManager:
             timeout=30,
         )
 
-        print(resp.text)
+        logger.info(resp.text)
 
 def get_task_info(atm, session=None):
     """获取任务信息。"""
