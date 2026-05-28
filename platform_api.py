@@ -5,12 +5,12 @@ import time
 import threading
 import traceback
 from typing import Dict, Optional
-from urllib import error
+from pathlib import Path
 
 import requests
 
 from config import Config
-from log import logger, data_logger
+from log import logger
 
 
 _SSL_CONTEXT = ssl._create_unverified_context()
@@ -165,6 +165,141 @@ class ProxyPool:
             self.set_proxy_status(atm, proxy, 2)
 
 
+class KeywordIpManager:
+
+    """
+    seosystem.top API 客户端
+
+    功能：
+    1. 自动获取 token
+    2. 本地缓存 token
+    3. 自动判断 token 是否过期
+    4. 过期自动刷新
+    """
+
+    TOKEN_URL = "https://seosystem.top/prod/api/v1/token"
+    UPSERT_URL = "https://seosystem.top/prod/api/v1/crawler-server-logs/batch-upsert"
+
+    # token 有效期 1.5 天 = 129600 秒
+    TOKEN_EXPIRE_SECONDS = 129600
+
+    def __init__(
+        self,
+        cache_file: str = "seosystem_token.json",
+    ):
+        self.apikey = '5a11020697da4aceba7e011fc0370185'
+        self.bearer_token = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3NzAxNzI5NDMsIm5iZiI6MTc3MDE3Mjk0MywiZXhwIjoxNzcwNzc3NzQzLCJqdGkiOiIxIn0.AYlsEFbLYDrHsJv01BXWDoFYgtEujoqCNoS_H6ZHHYI'
+        self.cache_file = Path(cache_file)
+
+        self.token = None
+        self.token_time = 0
+
+        # 如果 token 不可用则自动刷新
+        if not self._is_token_valid():
+            self.refresh_token()
+
+    def _is_token_valid(self):
+        """检查 token 是否有效"""
+
+        if not self.token:
+            return False
+
+        now = time.time()
+
+        # 提前10分钟刷新
+        remain = self.TOKEN_EXPIRE_SECONDS - (now - self.token_time)
+
+        return remain > 600
+
+    # =========================================================
+    # 获取 token
+    # =========================================================
+
+    def refresh_token(self):
+        """刷新 token"""
+
+        logger.info("get SeoSystemClient token...")
+
+        headers = {
+            "User-Agent": "Apifox/1.0.0 (https://apifox.com)",
+            "Authorization": f"Bearer {self.bearer_token}",
+            "Accept": "*/*",
+        }
+
+        data = {
+            "apikey": self.apikey,
+        }
+
+        resp = requests.post(
+            self.TOKEN_URL,
+            headers=headers,
+            data=data,
+            timeout=30,
+        )
+
+        resp.raise_for_status()
+
+        data = resp.json()
+
+        logger.info(f"token api response: {data}")
+
+        token = data["data"]["token"]
+
+        self.token = token
+        self.token_time = time.time()
+
+        logger.info("token refresh Success: {}".format(token))
+
+    # =========================================================
+    # 获取可用 token
+    # =========================================================
+
+    def get_token(self):
+        """获取可用 token"""
+
+        if not self._is_token_valid():
+            self.refresh_token()
+
+        return self.token
+
+    # =========================================================
+    # 批量提交
+    # =========================================================
+
+    def batch_upsert(self, tid, kw):
+        """
+        批量提交日志
+
+        items:
+        [
+            {"keyword":"k1","server_ip":"1.1.1.1"},
+            {"keyword":"k2","server_ip":"1.1.1.1"},
+        ]
+        """
+
+        token = self.get_token()
+
+        headers = {
+            "User-Agent": "Apifox/1.0.0 (https://apifox.com)",
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.bearer_token}",
+            "Accept": "*/*",
+        }
+
+        payload = {
+            "token": token,
+            "items": [{"keyword": kw, "server_ip": Config.LOCAL_IP, "task_id": tid}],
+        }
+
+        resp = requests.post(
+            self.UPSERT_URL,
+            headers=headers,
+            json=payload,
+            timeout=30,
+        )
+
+        print(resp.text)
+
 def get_task_info(atm, session=None):
     """获取任务信息。"""
     token = atm.get_token()
@@ -310,4 +445,4 @@ def update_task_status(atm, session, task_id):
 # 兼容旧名称
 AsyncTokenManager = TokenManager
 AsyncProxyPool = ProxyPool
-
+kim = KeywordIpManager()

@@ -27,7 +27,7 @@ import time
 import shutil
 import random
 import datetime
-from urllib.parse import urlparse
+from platform_api import kim
 
 # Windows 控制台 UTF-8 兼容
 if sys.platform == "win32":
@@ -621,6 +621,7 @@ def search_single_keyword(
                 special_logger.info(
                     f"[work-{params.worker_id}][{params.task_id}][{keyword}] {proxy_server} success product {len(products)}")
             params.app.set_success(params.atm, params.proxies)
+            kim.batch_upsert(params.task_id, keyword)
             return True
 
         except Exception as e:
@@ -707,6 +708,7 @@ def search_keyword_batch(params):
 
             if success is True:
                 success_count += 1
+
             elif success is None:
                 err_tasks.append(keyword_item)
                 logger.warning(

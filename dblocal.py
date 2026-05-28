@@ -293,7 +293,7 @@ class RedisSetReader:
             port=6379,
             password="",
             db=0,
-            expire_minutes=10
+            expire_minutes=20
     ):
 
         self.redis = redis.Redis(

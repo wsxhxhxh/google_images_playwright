@@ -1,6 +1,7 @@
 # config.py
 import os
 from dotenv import load_dotenv
+import requests
 
 load_dotenv()
 
@@ -157,3 +158,4 @@ class Config:
     TASK_NUM: int = int(os.getenv("TASK_NUM", "10"))
     HEADLESS: bool = bool(os.getenv("HEADLESS", "False").lower() == "true")
     USE_PROXY: bool = bool(os.getenv("USE_PROXY", "true").lower() == "true")
+    LOCAL_IP: str = requests.get("https://api.ipify.org").text
