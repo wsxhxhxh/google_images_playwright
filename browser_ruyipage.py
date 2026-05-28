@@ -317,7 +317,6 @@ class RuyiPageBrowser:
         `;
         document.head.appendChild(style);
         """)
-        self.page.listen.start(TARGET_PREFIX)
         logger.info(f"[Worker-{self.worker_id}] Firefox Start Success")
 
     # ── 导航 ──────────────────────────────────────────────────
