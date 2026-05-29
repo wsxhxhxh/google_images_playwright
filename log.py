@@ -8,14 +8,8 @@ from logging.handlers import TimedRotatingFileHandler
 load_dotenv()
 
 from contextlib import contextmanager
-class TaskNameFilter(logging.Filter):
-    def filter(self, record):
-        thread_name = threading.current_thread().name
-        record.task_name = thread_name if thread_name else "Main"
-        return True
 
-
-formatter = logging.Formatter('%(asctime)s [%(levelname)s] [%(task_name)s] %(message)s')
+formatter = logging.Formatter('%(asctime)s [%(levelname)s] [%(threadName)s] %(message)s')
 directory_path = os.path.dirname(os.path.abspath(__file__))
 os.makedirs(os.path.join(directory_path, "logs"), exist_ok=True)
 file_handler = TimedRotatingFileHandler(
@@ -40,11 +34,11 @@ except Exception:
     pass
 
 logger = logging.getLogger()
-logger.addFilter(TaskNameFilter())
-logger.setLevel(logging.INFO)
 
-logger.addHandler(file_handler)
-logger.addHandler(stream_handler)
+if not logger.handlers:
+    logger.setLevel(logging.INFO)
+    logger.addHandler(file_handler)
+    logger.addHandler(stream_handler)
 
 
 
