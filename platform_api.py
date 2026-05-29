@@ -256,17 +256,16 @@ class KeywordIpManager:
 
     def get_token(self):
         """获取可用 token"""
-
-        if not self._is_token_valid():
-            self.refresh_token()
-
-        return self.token
+        with self._lock:
+            if not self._is_token_valid():
+                self.refresh_token()
+            return self.token
 
     # =========================================================
     # 批量提交
     # =========================================================
 
-    def batch_upsert(self, tid, kw):
+    def batch_upsert(self, tid, kw, err):
         """
         批量提交日志
 
@@ -288,7 +287,12 @@ class KeywordIpManager:
 
         payload = {
             "token": token,
-            "items": [{"keyword": kw, "server_ip": Config.LOCAL_IP, "task_id": tid}],
+            "items": [{
+                "keyword": kw,
+                "server_ip": Config.LOCAL_IP,
+                "task_id": tid,
+                "result_type": 'error' if err else 'success'
+            }],
         }
 
         resp = requests.post(

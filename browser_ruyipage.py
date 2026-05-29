@@ -591,6 +591,7 @@ def search_single_keyword(
                     f"[work-{params.worker_id}][{params.task_id}][{keyword}] "
                     f"{proxy_server} Verification code"
                 )
+                kim.batch_upsert(params.task_id, keyword, True)
                 return None
 
             if aggregated_data["new_datas"]:
@@ -632,8 +633,9 @@ def search_single_keyword(
             if attempt < max_retries - 1:
                 time.sleep(3)
             else:
+                kim.batch_upsert(params.task_id, keyword, True)
                 return False
-
+    kim.batch_upsert(params.task_id, keyword, True)
     return False
 
 
