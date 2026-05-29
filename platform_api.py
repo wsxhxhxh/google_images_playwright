@@ -256,10 +256,9 @@ class KeywordIpManager:
 
     def get_token(self):
         """获取可用 token"""
-        with self._lock:
-            if not self._is_token_valid():
-                self.refresh_token()
-            return self.token
+        if not self._is_token_valid():
+            self.refresh_token()
+        return self.token
 
     # =========================================================
     # 批量提交
