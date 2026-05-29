@@ -127,7 +127,7 @@ def extract_number(text):
 def deal_info(productlist, params):
     """同步处理产品信息。"""
     datas = []
-    descriptions = []
+    # descriptions = []
     # 第一步：构建描述列表（可以并行处理）
     with log_timing(params.worker_id, "add product redis"):
         for item in productlist:
@@ -138,28 +138,25 @@ def deal_info(productlist, params):
                 "purl": get_dic(item, "link"),
                 "type": deal_product_platform_type(get_dic(item, "link"), get_dic(item, "image")),
             }
-            # params.rsr.add(params.task_id, json.dumps(description, ensure_ascii=False))
-            descriptions.append(description)
+            params.rsr.add(params.task_id, json.dumps(description, ensure_ascii=False))
+            # descriptions.append(description)
 
     # 第二步：处理产品数据
     ok_product = 0
     for product in productlist:
         if ok_product >= params.usenum:
-            continue
+            break
         with log_timing(params.worker_id, "get redis random product"):
-            # raw_list = params.rsr.random_get(params.task_id, params.desimagenum)
-            # description = "[" + ",".join(raw_list) + "]"
-            description = json.dumps(descriptions[:params.desimagenum])
+            raw_list = params.rsr.random_get(params.task_id, params.desimagenum)
+            description = "[" + ",".join(raw_list) + "]"
+            # description = json.dumps(descriptions[:params.desimagenum])
         link = get_dic(product, "link")
         info = deal_product_info(get_dic(product, "info"), link, get_dic(product, "image"))
         pinfo = get_dic(product, "info")
 
         if params.collect_platform_type:
-            cpts = params.collect_platform_type
-            if type(cpts) == str:
-                cpts = json.loads(cpts)
 
-            for cpt in cpts:
+            for cpt in params.collect_platform_type:
                 if cpt in info:
                     ok_product += 1
                     new_data = {

@@ -1,4 +1,5 @@
 # main.py
+import json
 import signal
 import random
 import threading
@@ -53,7 +54,9 @@ def worker(worker_id: int, stop_event: threading.Event, atm: TokenManager, app: 
                 delay = random.uniform(4, 6)
                 stop_event.wait(delay)
                 continue
-
+            cpt = task_info.get("collect_platform_type")
+            if cpt and type(cpt) == str:
+                cpt = json.loads(cpt)
             print_sleep = True
             try:
                 params = SearchTaskParams(
@@ -76,7 +79,7 @@ def worker(worker_id: int, stop_event: threading.Event, atm: TokenManager, app: 
                     jxycategory_id=task_info.get("category_id"),
                     task_id=task_info.get("id"),
                     proxies=None,
-                    collect_platform_type=task_info.get("collect_platform_type"),
+                    collect_platform_type=cpt,
                     app=app,
                     atm=atm,
                     rsr=rsr,
