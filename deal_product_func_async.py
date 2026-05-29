@@ -147,10 +147,11 @@ def deal_info(productlist, params):
         if ok_product >= params.usenum:
             continue
         with log_timing(params.worker_id, "get redis random product"):
-            description = json.dumps([json.loads(_js) for _js in params.rsr.random_get(params.task_id, params.desimagenum)])
+            raw_list = params.rsr.random_get(params.task_id, params.desimagenum)
+            description = "[" + ",".join(raw_list) + "]"
         link = get_dic(product, "link")
         info = deal_product_info(get_dic(product, "info"), link, get_dic(product, "image"))
-
+        pinfo = get_dic(product, "info")
 
         if params.collect_platform_type:
             cpts = params.collect_platform_type
@@ -165,7 +166,7 @@ def deal_info(productlist, params):
                         "index": get_dic(product, "index"),
                         "name1": get_dic(product, "word"),
                         "name": deal_product_name(get_dic(product, "word")),
-                        "shortdescription": deal_product_info_desc(get_dic(product, "info"), "desc"),
+                        "shortdescription": deal_product_info_desc(pinfo, "desc"),
                         "description": description,
                         "domain": get_dic(product, "domain"),
                         "link": link,
@@ -184,7 +185,7 @@ def deal_info(productlist, params):
                 "index": get_dic(product, "index"),
                 "name1": get_dic(product, "word"),
                 "name": deal_product_name(get_dic(product, "word")),
-                "shortdescription": deal_product_info_desc(get_dic(product, "info"), "desc"),
+                "shortdescription": deal_product_info_desc(pinfo, "desc"),
                 "description": description,
                 "domain": get_dic(product, "domain"),
                 "link": link,
