@@ -264,7 +264,7 @@ class KeywordIpManager:
     # 批量提交
     # =========================================================
 
-    def batch_upsert(self, tid, kw, err):
+    def batch_upsert(self, tid, kw, err=False):
         """
         批量提交日志
 
