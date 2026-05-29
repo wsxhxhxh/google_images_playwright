@@ -312,17 +312,14 @@ class RedisSetReader:
     # ================= 添加 =================
 
     def add(self, task_id, value):
-
         now = int(time.time())
-
         expire_at = now + self.expire_seconds
-
         key = self._get_key(task_id)
 
-        self.redis.zadd(
-            key,
-            {value: expire_at}
-        )
+        pipe = self.redis.pipeline()
+        pipe.zremrangebyscore(key, 0, now)  # 插入时清理一次
+        pipe.zadd(key, {value: expire_at})
+        pipe.execute()
 
     # ================= 清理过期 =================
 
@@ -339,26 +336,8 @@ class RedisSetReader:
     # ================= 随机获取 =================
 
     def random_get(self, task_id, count=20):
-
         key = self._get_key(task_id)
-
-        # 先删过期
-        self._clean_expired(key)
-
-        # 获取全部有效数据
-        data = self.redis.zrange(
-            key,
-            0,
-            -1
-        )
-
-        if not data:
-            return []
-
-        if len(data) <= count:
-            return data
-
-        return random.sample(data, count)
+        return self.redis.zrandmember(key, count) or []
 
     # ================= 数量 =================
 
