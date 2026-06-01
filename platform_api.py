@@ -317,9 +317,9 @@ def get_task_info(atm, session=None):
                 return res[0]
             return res
         except Exception as exc:
-            logger.error(f"获取任务信息失败 (尝试 {attempt + 1}): {exc}")
+            logger.error(f"get task failed (retry {attempt + 1}): {exc}")
             time.sleep(3)
-    raise Exception("获取任务信息失败，已重试10次")
+    return None
 
 
 def fetch_tasks_from_api(params):
