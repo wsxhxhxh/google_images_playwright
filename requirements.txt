@@ -21,6 +21,7 @@ pyee==13.0.0
 PySocks==1.7.1
 python-dotenv==1.2.2
 python-socks==2.8.0
+redis==8.0.0
 requests==2.33.1
 rsa==4.9.1
 ruyiPage==1.2.11
