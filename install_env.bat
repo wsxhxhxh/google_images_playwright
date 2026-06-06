@@ -58,7 +58,7 @@ echo [5/6] 安装 Chrome...
 echo [6/6] 安装 Redis 服务...
 if exist "C:\Redis" rd /s /q "C:\Redis"
 powershell -Command "Expand-Archive -Path '%DOWN_DIR%\Redis.zip' -DestinationPath 'C:\' -Force"
-ren "C:\Redis-8.8.0-Windows-x64-msys2" "Redis"
+ren "C:\Redis-8.8.0-Windows-x64-msys2-with-Service" "Redis"
 cd /d "C:\Redis"
 start /wait RedisService.exe install
 
