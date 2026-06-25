@@ -1,4 +1,6 @@
 # main.py
+import io
+import sys
 import json
 import signal
 import random
@@ -13,6 +15,26 @@ from dblocal import RedisSetReader
 from log import logger
 from platform_api import TokenManager, ProxyPool, get_task_info
 
+
+# Windows 控制台 UTF-8 兼容
+if sys.platform == "win32":
+    try:
+        if hasattr(sys.stdout, "buffer"):
+            sys.stdout = io.TextIOWrapper(
+                sys.stdout.buffer,
+                encoding="utf-8",
+                errors="replace",
+                line_buffering=True,
+            )
+        if hasattr(sys.stderr, "buffer"):
+            sys.stderr = io.TextIOWrapper(
+                sys.stderr.buffer,
+                encoding="utf-8",
+                errors="replace",
+                line_buffering=True,
+            )
+    except Exception:
+        pass
 
 @dataclass
 class SearchTaskParams:
