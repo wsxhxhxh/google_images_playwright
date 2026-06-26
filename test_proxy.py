@@ -52,7 +52,7 @@ async def main():
     PROXY_URL: str = os.getenv("PROXY_URL", "")
     proxy_list = await get_proxy(PROXY_URL)
     for ppp in proxy_list:
-        await test_proxy(f"socks5://{ppp['ip']}:1080")
+        await test_proxy(f"socks5://{ppp['ip']}:{ppp['port']}")
     await test_no_proxy()
 
 
