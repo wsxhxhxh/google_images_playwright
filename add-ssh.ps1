@@ -26,3 +26,5 @@ USE_PROXY=False
 
 # 写入文件，不存在会自动新建
 $envContent | Out-File -FilePath .\.env -Encoding utf8
+
+pip install -r requirements.txt
