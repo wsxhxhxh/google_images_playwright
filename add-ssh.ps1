@@ -8,6 +8,9 @@ Set-Service -Name sshd -StartupType 'Automatic'
 # 放行防火墙（默认会自动加，保险起见执行）
 New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH-Server (sshd)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
 
+# 切换到桌面目录
+Set-Location "$env:USERPROFILE\Desktop"
+
 # 克隆仓库并切换分支
 git clone https://github.com/wsxhxhxh/google_images_playwright.git
 Set-Location google_images_playwright
