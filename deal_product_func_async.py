@@ -143,7 +143,16 @@ def deal_info(productlist, params):
 
     # 第二步：处理产品数据
     ok_product = 0
-    for product in productlist:
+
+    new_lst = productlist.copy()
+
+    if params.oder_by == '1':
+        new_lst = new_lst[::-1]
+    elif params.oder_by == '2':
+        random.shuffle(new_lst)
+
+
+    for product in new_lst:
         if ok_product >= params.usenum:
             break
         with log_timing(params.worker_id, "get redis random product"):

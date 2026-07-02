@@ -54,6 +54,7 @@ class SearchTaskParams:
     no_keyword_num: int
     desimagenum: int
     languageid: int
+    oder_by: str
     jxycategory_id: str
     proxies: Dict | None
     collect_platform_type: List[str]
@@ -102,6 +103,7 @@ def worker(worker_id: int, stop_event: threading.Event, atm: TokenManager, app: 
                     jxycategory_id=task_info.get("category_id"),
                     task_id=task_info.get("id"),
                     proxies=None,
+                    oder_by=str(task_info.get("collection_sequence", "0")),
                     collect_platform_type=cpt,
                     app=app,
                     atm=atm,
