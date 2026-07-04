@@ -15,14 +15,20 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def is_ok_site(domain):
 
+    headers = {
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
+        'accept': '*/*',
+        'accept-encoding': 'html',
+        'accept-language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7,en-GB;q=0.6',
+    }
     if not domain.startswith(('http://', 'https://')):
         url_with_protocol = 'https://' + domain
         domain = url_with_protocol
 
     try:
-        resp = requests.get(domain, timeout=10, verify=False)
+        resp = requests.get(domain, timeout=10, headers=headers, verify=False)
         text = resp.text
-
+        print(text)
         if '/wp-content/' in text:
             system_info = 'wordpress'
         elif 'joomla' in text:
@@ -54,6 +60,9 @@ def domain_work(domain_info):
     res["http_code"] = site_status
     if not (200 <= site_status < 300):
         res["status"] = 0
+        if not res.get("query_result"):
+            res["query_result"] = {}
+        res["query_result"]["err_msg"] = "response status not 200"
         return res
     res["system_info"] = system_info
 
