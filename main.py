@@ -28,7 +28,7 @@ def is_ok_site(domain):
     try:
         resp = requests.get(domain, timeout=10, headers=headers, verify=False)
         text = resp.text
-        print(text)
+
         if '/wp-content/' in text:
             system_info = 'wordpress'
         elif 'joomla' in text:
