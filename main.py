@@ -186,7 +186,6 @@ def main():
 
             if has_da_pa:
                 dp_groups = split_by_group(has_da_pa)
-
                 with ThreadPoolExecutor(max_workers=8) as executor:
 
                     for wi, dp_group in enumerate(dp_groups):
@@ -200,8 +199,6 @@ def main():
                             language_code='en-US',
                         )
                         executor.submit(ruyi_work, params)
-
-
         send_task_status(atm, task_id, 4)
 
 if __name__ == '__main__':

@@ -693,7 +693,7 @@ def search_keyword_batch(params):
             elif success is None:
                 first_run = True
                 logger.warning(f"检测到验证页面，立即关闭浏览器并退出")
-                tasks.insert(0, keyword_item_str)  # 用insert(0)而不是append，保持顺序
+                tasks.append(keyword_item_str)  # 用insert(0)而不是append，保持顺序
 
                 # 先关闭旧浏览器
                 old_browser = browser
