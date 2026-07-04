@@ -652,7 +652,7 @@ def init_browse(params):
     logger.info(
         f"[Worker-{params.worker_id}] 初始化浏览器 | "
         f"port={BASE_PORT + params.worker_id} | "
-        f"proxy={params.proxies['server']}"
+        f"proxy={params.proxies.get('server', 'DIRECT')}"
     )
     browser.initialize()
     return browser

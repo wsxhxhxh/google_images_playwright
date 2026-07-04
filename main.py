@@ -192,7 +192,7 @@ def main():
                         params = SearchTaskParams(
                             worker_id=wi + 1,
                             tasks=dp_group,
-                            proxies={"server": "DIRECT"},
+                            proxies={},
                             session=None,
                             app=app,
                             atm=atm,
