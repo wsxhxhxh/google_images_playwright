@@ -2,6 +2,7 @@ import os
 import json
 import time
 import shutil
+import tempfile
 import random
 from config import Config, logger
 from urllib.parse import urlparse
@@ -104,11 +105,34 @@ def _write_proxy_to_user_dir(user_dir: str, proxy_server: str) -> None:
 
 
 def _clear_proxy_from_user_dir(user_dir: str) -> None:
-    """清除 user.js 中的代理配置（直连时调用）"""
+    """
+    Fully disable proxy settings.
+    """
+
     user_js_path = os.path.join(user_dir, "user.js")
-    # 写入"无代理"配置
+
+    lines = [
+        'user_pref("network.proxy.type", 0);',
+
+        'user_pref("network.proxy.http", "");',
+        'user_pref("network.proxy.http_port", 0);',
+
+        'user_pref("network.proxy.ssl", "");',
+        'user_pref("network.proxy.ssl_port", 0);',
+
+        'user_pref("network.proxy.socks", "");',
+        'user_pref("network.proxy.socks_port", 0);',
+
+        'user_pref("network.proxy.socks_version", 5);',
+        'user_pref("network.proxy.socks_remote_dns", false);',
+
+        'user_pref("network.proxy.no_proxies_on", "");',
+    ]
+
     with open(user_js_path, "w", encoding="utf-8") as f:
-        f.write('user_pref("network.proxy.type", 0);\n')
+        f.write("\n".join(lines) + "\n")
+
+    logger.info(f"[Proxy] Proxy settings cleared: {user_js_path}")
 
 
 def contains_japanese_kana(text):
@@ -125,6 +149,35 @@ def send_result_batch(atm, items):
     if resp.status_code == 200:
         print(resp.text)
 
+
+def clean_proxy_prefs(user_dir: str):
+    prefs_path = os.path.join(user_dir, "prefs.js")
+
+    if not os.path.exists(prefs_path):
+        return
+
+    with open(prefs_path, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.readlines()
+
+    filtered = []
+
+    for line in lines:
+        if "network.proxy" in line:
+            continue
+        filtered.append(line)
+
+    with open(prefs_path, "w", encoding="utf-8") as f:
+        f.writelines(filtered)
+
+    logger.info(f"[Proxy] Cleaned prefs.js proxy settings")
+
+def write_proxy_fpfile(path: str, host: str, port: int, username: str, password: str) -> None:
+    """Write SOCKS5 proxy and auth fields to an fp file."""
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("socksauth.host:{}\n".format(host))
+        f.write("socksauth.port:{}\n".format(int(port)))
+        f.write("socksauth.username:{}\n".format(username))
+        f.write("socksauth.password:{}\n".format(password))
 
 
 class RuyiPageBrowser:
@@ -180,11 +233,11 @@ class RuyiPageBrowser:
             time.sleep(stagger)
 
         # 步骤2：将代理写入该 worker 专属的 user.js
-        if proxy_server:
-            _write_proxy_to_user_dir(self._user_dir, proxy_server)
-        else:
+        if not Config.USE_PROXY:
             _clear_proxy_from_user_dir(self._user_dir)
+            clean_proxy_prefs(self._user_dir)
 
+        launch_args = self._build_proxy_launch_args()
         # 步骤3：launch() 启动独立 Firefox 进程
         #   - port     : 每个 worker 独占一个端口，互不干扰
         #   - user_dir : 每个 worker 独占一个 profile 目录
@@ -199,11 +252,84 @@ class RuyiPageBrowser:
             headless=self.headless,
             port=self._port,
             user_dir=self._user_dir,
-            browser_path=self.firefox_path,   # None 时 launch() 自动查找 Firefox
+            browser_path=self.firefox_path,  # None 时 launch() 自动查找 Firefox
+            **launch_args,
         )
+
+        self.page.run_js("""
+                document.documentElement.style.scrollBehavior = 'auto';
+                document.body.style.scrollBehavior = 'auto';
+                """)
+        self.page.run_js("""
+                const style = document.createElement('style');
+                style.innerHTML = `
+                * {
+                  scroll-behavior: auto !important;
+                }
+                `;
+                document.head.appendChild(style);
+                """)
         logger.info(f"[Worker-{self.worker_id}] Firefox 启动成功")
 
+    def _build_proxy_launch_args(self):
+        """
+        根据代理类型生成 launch 参数
+
+        支持：
+           socks5://host:port
+           socks5://user:pass@host:port
+           http://host:port
+       """
+
+        proxy_server = self.proxies.get("server", "")
+
+        if not proxy_server:
+            return {}
+
+        parsed = urlparse(proxy_server)
+
+        scheme = parsed.scheme.lower()
+
+        host = parsed.hostname
+        port = parsed.port
+        username = parsed.username
+        password = parsed.password
+
+        # --------------------------------
+        # SOCKS5 + 用户密码
+        # ruyipage 必须 fpfile
+        # --------------------------------
+        if scheme.startswith("socks5") and username and password:
+            fd, fpfile_path = tempfile.mkstemp(suffix=f"-worker-{self.worker_id}-ruyipage-socks5.txt")
+            os.close(fd)
+
+            write_proxy_fpfile(
+                fpfile_path,
+                host=host,
+                port=port,
+                username=username,
+                password=password,
+            )
+
+            self._fpfile_path = fpfile_path
+
+            logger.info(
+                f"[Worker-{self.worker_id}] use socks5 auth fpfile: {fpfile_path}"
+            )
+
+            return {
+                "fpfile": fpfile_path
+            }
+
+        # --------------------------------
+        # 普通代理
+        # --------------------------------
+        return {
+            "proxy": proxy_server
+        }
+
     # ── 导航 ──────────────────────────────────────────────────
+
     def goto(self, url: str, timeout: int = 30):
         self._require_page()
         self.page.get(url, timeout=timeout)
@@ -507,7 +633,7 @@ def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, params, 
 
 
 def init_browse(params):
-    while True:
+    while Config.USE_PROXY:
         proxy = params.app.get_random_proxy()
         params.proxies = proxy
         if proxy:

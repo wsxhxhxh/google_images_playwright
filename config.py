@@ -198,10 +198,4 @@ class Config:
     MAX_CTX_PER_BROWSER: int = int(os.getenv("MAX_CTX_PER_BROWSER", "3"))
     TOTAL_SLOTS = MAX_BROWSER * MAX_CTX_PER_BROWSER
     HEADLESS: bool = os.getenv("HEADLESS", "false").lower() == "true"
-    SEED_CIPHER: str = os.getenv("SEED_CIPHER", "")
-    print(SEED_CIPHER)
-    LINK_ATB:str = os.getenv("LINK_ATB", "")
-    LOGGING_COOKIE:str = os.getenv("LOGGING_COOKIE", "")
-    LOGGING_ID:str = os.getenv("LOGGING_ID", "")
-    LATEST_VERSION:str = os.getenv("LATEST_VERSION", "")
-
+    USE_PROXY: bool = bool(os.getenv("USE_PROXY", "true").lower() == "true")

@@ -80,6 +80,16 @@ class SearchTaskParams:
     app: ProxyPool
     atm: TokenManager
 
+def split_by_group(lst, group_size=5):
+    for i in range(0, len(lst), group_size):
+        yield lst[i:i+group_size]
+
+
+def ruyi_work(params):
+    send_result_batch(params.atm, params.tasks)
+    search_keyword_batch(params)
+
+
 def main():
     atm = TokenManager()
     app = ProxyPool()
@@ -175,17 +185,23 @@ def main():
                 send_result_batch(atm, no_da_pa)
 
             if has_da_pa:
-                send_result_batch(atm, has_da_pa)
-                params = SearchTaskParams(
-                    worker_id=1,
-                    tasks=has_da_pa,
-                    proxies=None,
-                    session=None,
-                    app=app,
-                    atm=atm,
-                    language_code='en-US',
-                )
-                search_keyword_batch(params)
+                dp_groups = split_by_group(has_da_pa)
+
+                with ThreadPoolExecutor(max_workers=8) as executor:
+
+                    for wi, dp_group in enumerate(dp_groups):
+                        params = SearchTaskParams(
+                            worker_id=wi + 1,
+                            tasks=dp_group,
+                            proxies=None,
+                            session=None,
+                            app=app,
+                            atm=atm,
+                            language_code='en-US',
+                        )
+                        executor.submit(ruyi_work, params)
+
+
         send_task_status(atm, task_id, 4)
 
 if __name__ == '__main__':
