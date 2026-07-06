@@ -510,7 +510,7 @@ class RuyiPageBrowser:
             "domains": domains,
             "related_search": related_search,
             "related_items": related_items,
-            "descs": desc_texts
+            "descs": list(desc_texts)
         }
 
     def get_rendered_html(self) -> str:
