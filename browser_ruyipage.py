@@ -217,14 +217,8 @@ class RuyiPageBrowser:
             )
 
             self._fpfile_path = fpfile_path
-
-            logger.info(
-                f"[Worker-{self.worker_id}] use socks5 auth fpfile: {fpfile_path}"
-            )
-
-            return {
-                "fpfile": fpfile_path
-            }
+            logger.info(f"[Worker-{self.worker_id}] use socks5 auth fpfile: {fpfile_path}")
+            return {"fpfile": fpfile_path}
 
         # --------------------------------
         # 普通代理
@@ -360,6 +354,23 @@ class RuyiPageBrowser:
             })();
         """) or []
 
+    def click_button(self, type):
+        tags = []
+        args = ['.C6AK7c', '.Pg70bf.kBeHyf a']
+        for css in args:
+            tags = self.page.eles(f'css:{css}')
+            if tags: break
+        for tag in tags:
+            th = tag.attr('href')
+            if not th:
+                continue
+            if ((type == 'image') and (('udm=2&' in th) or ('tbm=isch&' in th))) or \
+                    ((type == 'video') and (('udm=7&' in th) or ('tbm=vid&' in th))):
+                tag.click()
+                time.sleep(2)
+                return
+
+
     # ── 搜索主流程 ────────────────────────────────────────────
     def search_and_get_html(self, keyword_item: dict, params, first_run: bool = False) -> dict | None:
         self._require_page()
@@ -367,18 +378,12 @@ class RuyiPageBrowser:
         kid = keyword_item["id"]
 
         # 只有第一次才打开 Google 图片首页
+
+        with log_timing(self.worker_id, "goto google search"):
+            self.goto(f"https://www.google.com")
+        random_sleep(0.4, 0.8)
+
         if first_run:
-            with log_timing(self.worker_id, "goto google images"):
-                self.goto(
-                    f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl"
-                )
-            random_sleep(0.4, 0.8)
-
-            current_url = self.page.url
-            if "/sorry/" in current_url or "sorry" in current_url:
-                logger.warning(f"[Worker-{self.worker_id}] Verification code Page: {current_url}")
-                return None
-
             self.handle_cookie_consent()
 
         # 每次都检查是否已经跳验证码
@@ -436,6 +441,26 @@ class RuyiPageBrowser:
             logger.warning(f"[Worker-{self.worker_id}] Verification code: {current_url}")
             return None
 
+        try:
+            nexts = self.page.eles('css:.NKTSme a', timeout=2)
+            next_page = random.choice(nexts)
+            next_page.click()
+            time.sleep(0.5)
+        except:
+            logger.info('not next page')
+        desc_texts = set()
+        desc_node = self.page.eles('css:.VwiC3b.yXK7lf.p4wth.r025kc.Hdw6tb span:last-child')
+        for dn in desc_node:
+            if not dn.attr('class'):
+                text = dn.text
+                text = text.replace("...", ".").replace(",", ".").replace(';', '.')
+                tls = text.split(".")
+                for tl in tls:
+                    if tl and tl.strip() and len(tl.strip()) > 3:
+                        desc_texts.add(tl.strip())
+
+        self.click_button('image')
+
         new_datas = []
         domains = []
 
@@ -485,6 +510,7 @@ class RuyiPageBrowser:
             "domains": domains,
             "related_search": related_search,
             "related_items": related_items,
+            "descs": desc_texts
         }
 
     def get_rendered_html(self) -> str:
@@ -568,7 +594,7 @@ def search_single_keyword(
             if aggregated_data["new_datas"]:
                 logger.info(f"[{keyword}] processed {len(aggregated_data['new_datas'])} data")
                 with log_timing(params.worker_id, 'deal google product info'):
-                    products = deal_info(aggregated_data["new_datas"], params)
+                    products = deal_info(aggregated_data["new_datas"], params, aggregated_data["descs"])
                 with log_timing(params.worker_id, 'deal shopify product info'):
                     shopify_products = deal_shopify_product_info(params, products)
 
