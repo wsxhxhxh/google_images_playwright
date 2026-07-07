@@ -158,4 +158,5 @@ class Config:
     TASK_NUM: int = int(os.getenv("TASK_NUM", "10"))
     HEADLESS: bool = bool(os.getenv("HEADLESS", "False").lower() == "true")
     USE_PROXY: bool = bool(os.getenv("USE_PROXY", "true").lower() == "true")
+    LOCAL_PROXY: list = [item.strip() for item in os.getenv("IP_LIST", "").split(",") if item and item.strip()]
     LOCAL_IP: str = requests.get("https://api.ipify.org").text

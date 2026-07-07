@@ -257,9 +257,8 @@ class RuyiPageBrowser:
             f"proxy={proxy_server or 'DIRECT'}"
         )
 
-        if not Config.USE_PROXY:
-            _clear_proxy_from_user_dir(self._user_dir)
-            clean_proxy_prefs(self._user_dir)
+        _clear_proxy_from_user_dir(self._user_dir)
+        clean_proxy_prefs(self._user_dir)
 
         launch_args = self._build_proxy_launch_args()
         self.page = launch(
@@ -650,6 +649,10 @@ def search_keyword_batch(params):
     """
 
     while Config.USE_PROXY:
+        if Config.LOCAL_PROXY:
+            proxy = {"server": "http://" + random.choice(Config.LOCAL_PROXY)}
+            params.proxies = proxy
+            break
         proxy = params.app.get_random_proxy()
         if proxy:
             params.proxies = proxy
