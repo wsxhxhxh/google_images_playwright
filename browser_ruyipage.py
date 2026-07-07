@@ -465,6 +465,7 @@ class RuyiPageBrowser:
 
         new_datas = []
         domains = []
+        wwws = set()
 
         random_sleep(0.8, 1.2)
 
@@ -476,12 +477,14 @@ class RuyiPageBrowser:
             result = demo_with_real_data(script_text)
 
         for item in result:
-            if item.get("site", ".jp").endswith(".jp"):
+            title = item.get("title")
+            if item.get("site", ".jp").endswith('.jp') or (title in wwws):
                 continue
 
+            wwws.add(title)
             new_data = {
                 "index": item.get("id"),
-                "word": item.get("title"),
+                "word": title,
                 "domain": item.get("site"),
                 "link": item.get("url"),
                 "image": item.get("image"),
