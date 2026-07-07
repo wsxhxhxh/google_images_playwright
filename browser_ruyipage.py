@@ -650,7 +650,7 @@ def search_keyword_batch(params):
 
     while Config.USE_PROXY:
         if Config.LOCAL_PROXY:
-            proxy = {"server": "http://" + random.choice(Config.LOCAL_PROXY)}
+            proxy = {"server": "http://" + random.choice(Config.LOCAL_PROXY), "id": 0}
             params.proxies = proxy
             break
         proxy = params.app.get_random_proxy()
