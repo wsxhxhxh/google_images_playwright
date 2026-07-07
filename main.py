@@ -57,6 +57,7 @@ class SearchTaskParams:
     oder_by: str
     jxycategory_id: str
     proxies: Dict | None
+    need_search_first: str
     collect_platform_type: List[str]
     app: ProxyPool
     atm: TokenManager
@@ -105,6 +106,7 @@ def worker(worker_id: int, stop_event: threading.Event, atm: TokenManager, app: 
                     proxies=None,
                     oder_by=str(task_info.get("collection_sequence", "0")),
                     collect_platform_type=cpt,
+                    need_search_first=str(task_info.get("need_search_first", "0")),
                     app=app,
                     atm=atm,
                     rsr=rsr,

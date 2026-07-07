@@ -379,7 +379,10 @@ class RuyiPageBrowser:
         # 只有第一次才打开 Google 图片首页
 
         with log_timing(self.worker_id, "goto google search"):
-            self.goto(f"https://www.google.com")
+            if params.need_search_first == "1":
+                self.goto("https://www.google.com")
+            else:
+                self.goto(f"https://www.google.com/imghp?hl={params.language_code}&authuser=0&ogbl")
         random_sleep(0.4, 0.8)
 
         if first_run:
@@ -439,26 +442,26 @@ class RuyiPageBrowser:
         if "/sorry/" in current_url or "sorry" in current_url:
             logger.warning(f"[Worker-{self.worker_id}] Verification code: {current_url}")
             return None
-
-        try:
-            nexts = self.page.eles('css:.NKTSme a', timeout=2)
-            next_page = random.choice(nexts)
-            next_page.click()
-            time.sleep(0.5)
-        except:
-            logger.info('not next page')
         desc_texts = set()
-        desc_node = self.page.eles('css:.VwiC3b.yXK7lf.p4wth.r025kc.Hdw6tb span:last-child')
-        for dn in desc_node:
-            if not dn.attr('class'):
-                text = dn.text
-                text = text.replace("...", ".").replace(",", ".").replace(';', '.')
-                tls = text.split(".")
-                for tl in tls:
-                    if tl and tl.strip() and len(tl.strip()) > 3:
-                        desc_texts.add(tl.strip())
+        if params.need_search_first == "1":
+            try:
+                nexts = self.page.eles('css:.NKTSme a', timeout=2)
+                next_page = random.choice(nexts)
+                next_page.click()
+                time.sleep(0.5)
+            except:
+                logger.info('not next page')
+            desc_node = self.page.eles('css:.VwiC3b.yXK7lf.p4wth.r025kc.Hdw6tb span:last-child')
+            for dn in desc_node:
+                if not dn.attr('class'):
+                    text = dn.text
+                    text = text.replace("...", ".").replace(",", ".").replace(';', '.')
+                    tls = text.split(".")
+                    for tl in tls:
+                        if tl and tl.strip() and len(tl.strip()) > 3:
+                            desc_texts.add(tl.strip())
 
-        self.click_button('image')
+            self.click_button('image')
 
         new_datas = []
         domains = []
