@@ -121,10 +121,9 @@ def main():
                         res["da"] = tmp.get("moz_da")
 
                 no_search.extend(search_da)
-
+            print(no_search)
             dp_groups = split_by_group(no_search)
             with ThreadPoolExecutor(max_workers=8) as executor:
-
                 for wi, dp_group in enumerate(dp_groups):
                     params = SearchTaskParams(
                         worker_id=wi + 1,
