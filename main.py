@@ -94,47 +94,46 @@ def main():
     app = ProxyPool()
     atm.refresh_token()
 
-    while True:
-        for i in range(1, 10):
-            domain_info_list = fetch_domain_by_task_id(i, 100)
-            if not domain_info_list:
-                print("not domain break")
-                break
+    for i in range(1, 50):
+        domain_info_list = fetch_domain_by_task_id(i, 100)
+        if not domain_info_list:
+            print("not domain break")
+            break
 
-            search_da = [s for s in domain_info_list if not s["da"]]
-            no_search = [s for s in domain_info_list if s["da"]]
+        search_da = [s for s in domain_info_list if not s["da"]]
+        no_search = [s for s in domain_info_list if s["da"]]
 
-            print()
-            print("search_da", search_da)
-            print("no_search", no_search)
+        print()
+        print("search_da", search_da)
+        print("no_search", no_search)
 
-            if search_da:
-                def run_async(coro):
-                    return asyncio.run(coro)
+        if search_da:
+            def run_async(coro):
+                return asyncio.run(coro)
 
-                link_data = run_async(get_link_114_info([o["domain_name"] for o in search_da]))
+            link_data = run_async(get_link_114_info([o["domain_name"] for o in search_da]))
 
-                for res in search_da:
-                    domain = res["domain_name"]
-                    if link_data.get(domain):
-                        tmp = link_data[domain]
-                        res["da"] = tmp.get("moz_da")
+            for res in search_da:
+                domain = res["domain_name"]
+                if link_data.get(domain):
+                    tmp = link_data[domain]
+                    res["da"] = tmp.get("moz_da")
 
-                no_search.extend(search_da)
-            print(no_search)
-            dp_groups = split_by_group(no_search)
-            with ThreadPoolExecutor(max_workers=8) as executor:
-                for wi, dp_group in enumerate(dp_groups):
-                    params = SearchTaskParams(
-                        worker_id=wi + 1,
-                        tasks=dp_group,
-                        proxies={},
-                        session=None,
-                        app=app,
-                        atm=atm,
-                        language_code='en-US',
-                    )
-                    executor.submit(ruyi_work, params)
+            no_search.extend(search_da)
+        print(no_search)
+        dp_groups = split_by_group(no_search)
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            for wi, dp_group in enumerate(dp_groups):
+                params = SearchTaskParams(
+                    worker_id=wi + 1,
+                    tasks=dp_group,
+                    proxies={},
+                    session=None,
+                    app=app,
+                    atm=atm,
+                    language_code='en-US',
+                )
+                executor.submit(ruyi_work, params)
 
 
 if __name__ == '__main__':
