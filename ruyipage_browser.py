@@ -330,7 +330,7 @@ class RuyiPageBrowser:
 
 
     # ── Cookie 弹窗处理 ───────────────────────────────────────
-    def handle_cookie_consent(self, timeout: float = 5.0) -> bool:
+    def handle_cookie_consent(self, timeout: float = 3.0) -> bool:
         self._require_page()
         selectors = [
             "#L2AGLb",
@@ -406,16 +406,15 @@ class RuyiPageBrowser:
         keyword = "site:" + keyword_item["domain_name"]
 
         # 只有第一次才打开 Google 图片首页
-        if first_run:
-            self.goto(f"https://www.google.com/")
-            random_sleep(0.5, 1.0)
+        self.goto(f"https://www.google.com/")
+        random_sleep(0.5, 1.0)
 
-            current_url = self.page.url
-            if "/sorry/" in current_url or "sorry" in current_url:
-                logger.warning(f"[Worker-{self.worker_id}] 检测到验证页面: {current_url}")
-                return None
+        current_url = self.page.url
+        if "/sorry/" in current_url or "sorry" in current_url:
+            logger.warning(f"[Worker-{self.worker_id}] 检测到验证页面: {current_url}")
+            return None
 
-            self.handle_cookie_consent()
+        self.handle_cookie_consent()
 
         # 每次都检查是否已经跳验证码
         current_url = self.page.url
