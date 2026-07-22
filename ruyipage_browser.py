@@ -627,7 +627,7 @@ def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, params, 
         finally:
             # 发送批量结果
             try:
-                send_result_batch(params.atm, [keyword_item])
+                send_result_batch([keyword_item])
             except Exception as e:
                 logger.warning(f"[{keyword}] 发送结果失败: {e}")
 
