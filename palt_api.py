@@ -182,7 +182,7 @@ if __name__ == '__main__':
             "is_penalized": 1,
             "da": 5,
             "hellowrd":1,
-            "id": 10086
+            "id": 35
         }
     ])
     print(fetch_domain_by_task_id())

@@ -7,8 +7,8 @@ import random
 from config import Config, logger
 from urllib.parse import urlparse
 
-import requests
 from ruyipage import launch, Keys
+from palt_api import send_result_batch
 
 
 # ──────────────────────────────────────────────────────────────
@@ -140,16 +140,6 @@ def contains_japanese_kana(text):
     return bool(re.search(r'[\u3040-\u30ff]', text))
 
 
-def send_result_batch(atm, items):
-    token = atm.get_token()
-    url = f"https://seosystem.top/prod/api/v1/shell-domain-filter/domains/query-results"
-    headers = {"Authorization": "Bearer " + token}
-    data = {"items": items, "token": token}
-    resp = requests.post(url, headers=headers, json=data)
-    if resp.status_code == 200:
-        print(resp.text)
-
-
 def clean_proxy_prefs(user_dir: str):
     prefs_path = os.path.join(user_dir, "prefs.js")
 
@@ -178,6 +168,9 @@ def write_proxy_fpfile(path: str, host: str, port: int, username: str, password:
         f.write("socksauth.port:{}\n".format(int(port)))
         f.write("socksauth.username:{}\n".format(username))
         f.write("socksauth.password:{}\n".format(password))
+
+
+
 
 
 class RuyiPageBrowser:
