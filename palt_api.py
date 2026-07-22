@@ -139,11 +139,14 @@ def get_task_info(atm):
     raise Exception("获取任务信息失败，已重试10次")
 
 
-def fetch_domain_by_task_id(atm, task_id):
-    token = atm.get_token()
-    up = "page=1&page_size=100&status=1&filter_status=1&token="
-    url = f"https://seosystem.top/prod/api/v1/shell-domain-filter/tasks/{task_id}/domains?{up}{token}"
-    headers = {"Authorization": "Bearer " + token}
+def fetch_domain_by_task_id(page=1, page_size=500):
+    url = f"https://seosystem.top/prod/api/v1/shell-site-info/domains?page={page}&page_size={page_size}&token=7ee9a43ea2d8c11268dc95e2e298a183"
+    headers = {
+        "User-Agent": "Apifox/1.0.0 (https://apifox.com)",
+        "Content-Type": "application/json",
+        "Accept": "*/*",
+        "Authorization": f"Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3NzAxNzI5NDMsIm5iZiI6MTc3MDE3Mjk0MywiZXhwIjoxNzcwNzc3NzQzLCJqdGkiOiIxIn0.AYlsEFbLYDrHsJv01BXWDoFYgtEujoqCNoS_H6ZHHYI"
+    }
     for attempt in range(10):
         try:
             resp = _request_text("GET", url, headers=headers, timeout=10)
@@ -152,69 +155,34 @@ def fetch_domain_by_task_id(atm, task_id):
             return res
 
         except Exception as e:
-            print(f"task: {task_id} 获取域名信息失败 (尝试 {attempt + 1}): {e}")
+            print(f"task获取域名信息失败 (尝试 {attempt + 1}): {e}")
             time.sleep(3)
 
-    raise Exception(f"task: {task_id} 获取任务信息失败，已重试10次")
+    raise Exception(f"task 获取任务信息失败，已重试10次")
 
-def send_result_batch(atm, items):
-    token = atm.get_token()
-    url = f"https://seosystem.top/prod/api/v1/shell-domain-filter/domains/query-results"
-    headers = {"Authorization": "Bearer " + token}
-    data = {"items": items, "token": token}
+def send_result_batch(items):
+    url = f"https://seosystem.top/prod/api/v1/shell-site-info/batch?token=7ee9a43ea2d8c11268dc95e2e298a183"
+    headers = {
+        "User-Agent": "Apifox/1.0.0 (https://apifox.com)",
+        "Content-Type": "application/json",
+        "Accept": "*/*",
+        "Authorization": f"Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3NzAxNzI5NDMsIm5iZiI6MTc3MDE3Mjk0MywiZXhwIjoxNzcwNzc3NzQzLCJqdGkiOiIxIn0.AYlsEFbLYDrHsJv01BXWDoFYgtEujoqCNoS_H6ZHHYI"
+    }
+    data = {"items": items}
     resp = _request_text("POST", url, json_data=data, headers=headers, timeout=10)
     print(resp)
-
-def send_task_status(atm, task_id, status):
-    token = atm.get_token()
-    url = f"https://seosystem.top/prod/api/v1/shell-domain-filter/tasks/{task_id}/status"
-    headers = {"Authorization": "Bearer " + token}
-    data = {"token": token, "status": status}
-    resp = _request_text("POST", url, json_data=data, headers=headers, timeout=10)
-    print(resp)
-
-
-
-def test():
-    atm = TokenManager()
-    atm.refresh_token()
-
-
-    # test task
-
-    task = get_task_info(atm)
-    print(task)
-    #
-    send_task_status(atm, 30, 2)
-
-    # task = await get_task_info(atm, session)
-    # print(task)
-
-
-
-
-    # test domain
-
-    # items = [{
-    #     "id": i,
-    #     "status": 1
-    # } for i in range(300, 400)]
-    items = [{
-        "id": 1399,
-        "status": 1,
-        "domain_type": 1,
-        "query_result": {
-            # "create": None,
-            # "err_msg": "谷歌收录小于4"
-        }
-    }]
-    send_result_batch(atm, items)
-    #
-    res = fetch_domain_by_task_id(atm, 30)
-    print(res)
-
-
 
 
 if __name__ == '__main__':
-    test()
+
+    send_result_batch([
+        {
+            "shell_id": 35,
+            "index_count": 0,
+            "is_penalized": 1,
+            "da": 5,
+            "hellowrd":1,
+            "id": 10086
+        }
+    ])
+    print(fetch_domain_by_task_id())

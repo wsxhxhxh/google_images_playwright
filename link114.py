@@ -21,21 +21,11 @@ def create_response_handler(data):
         async with lock:
             if not data.get(site):
                 data[site] = {}
-        if params["func"] == "whois_days":
-            data[site]["create"] = jjjj["result"]["create"]
-        elif params["func"] == "moz_da":
+
+        if params["func"] == "moz_da":
             data[site]["moz_da"] = jjjj["result"]["da"]
             data[site]["moz_pa"] = jjjj["result"]["pa"]
-        elif params["func"] == "moz_pa":
-            data[site]["moz_da"] = jjjj["result"]["da"]
-            data[site]["moz_pa"] = jjjj["result"]["pa"]
-        elif params["func"] == "ip":
-            data[site]["ip"] = jjjj["result"].get("data")
-            data[site]["location"] = jjjj["result"].get("location")
-        elif params["func"] == "title":
-            data[site]["title"] = jjjj["result"].get("title")
-            data[site]["keywords"] = jjjj["result"].get("keywords")
-            data[site]["description"] = jjjj["result"].get("description")
+
 
     return handle_response
 
@@ -58,7 +48,7 @@ async def get_link_114_info(domains):
 
     await context.add_cookies([{
         "name": "preference",
-        "value": "whois_days|moz_da|moz_pa|ip|title",
+        "value": "moz_da",
         "domain": ".link114.cn",  # 注意域名格式
         "path": "/",
         "httpOnly": False,
@@ -112,7 +102,7 @@ async def get_link_114_info(domains):
     return res_data
 
 if __name__ == '__main__':
-    asyncio.run(get_link_114_info(["github.com", "deepseek.com"]))
+    print(asyncio.run(get_link_114_info(["github.com", "deepseek.com"])))
 
 
 

@@ -362,7 +362,7 @@ class RuyiPageBrowser:
     # ── 搜索输入 ──────────────────────────────────────────────
     def human_type_and_submit(self, keyword_item: dict, timeout: float = 10.0):
         self._require_page()
-        keyword = keyword_item["name"]
+        keyword = keyword_item["domain_name"]
 
         textarea = self.page.ele("css:textarea.gLFyf", timeout=timeout)
         if not textarea:
@@ -410,7 +410,7 @@ class RuyiPageBrowser:
     # ── 搜索主流程 ────────────────────────────────────────────
     def search_and_get_html(self, keyword_item: dict, params, first_run: bool = False) -> str | None:
         self._require_page()
-        keyword = "site:" + keyword_item["domain"]
+        keyword = "site:" + keyword_item["domain_name"]
 
         # 只有第一次才打开 Google 图片首页
         if first_run:
@@ -489,6 +489,34 @@ class RuyiPageBrowser:
             except Exception:
                 return ""
 
+
+    def click_button(self, type='image', fir=True):
+        tags = []
+        args = ['.C6AK7c', '.Pg70bf.kBeHyf a']
+        for css in args:
+            tags = self.page.eles(f'css:{css}')
+            if tags: break
+        for tag in tags:
+            th = tag.attr('href')
+            if not th:
+                continue
+            if ((type == 'image') and (('udm=2&' in th) or ('tbm=isch&' in th))) or \
+                    ((type == 'video') and (('udm=7&' in th) or ('tbm=vid&' in th))):
+                tag.click()
+                time.sleep(2)
+                current_url = self.page.url
+                if "/sorry/" in current_url or "sorry" in current_url:
+                    logger.warning(f"[Worker-{self.worker_id}] 检测到验证页面: {current_url}")
+                    return None
+                return True
+        else:
+            if fir:
+                self.page.ele(f'css:#ow18')
+                time.sleep(0.5)
+                return self.click_button(type, False)
+
+        return True
+
     # ── 关闭 ──────────────────────────────────────────────────
     def close(self):
         """安全关闭浏览器（不删除 user_dir，下次启动可复用 profile）"""
@@ -542,7 +570,8 @@ def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, params, 
     """
     使用 ruyiPage 同步浏览器搜索单个关键词
     """
-    keyword = keyword_item["domain"]
+    keyword = keyword_item["domain_name"]
+    keyword_item["shell_id"] = keyword_item["id"]
 
     for attempt in range(max_retries):
         try:
@@ -564,51 +593,32 @@ def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, params, 
             html_content = browser.get_rendered_html()
 
             if '- did not match any documents.' in html_content:
-                keyword_item["included_count"] = 0
-                keyword_item["status"] = 0
-
-            # 判断是否日本相关
-            is_jp = contains_japanese_kana(html_content)
-            if is_jp:
-                keyword_item["domain_type"] = 2
+                keyword_item["index_count"] = 0
 
             # 尝试获取收录数
             try:
                 text = browser.page.ele("css:#result-stats").text
                 text = text.replace("About", " ").replace("results", " ").strip()
-                keyword_item["included_count"] = int(text.split()[0].replace(",", ""))
-                keyword_item["status"] = 2
+                keyword_item["index_count"] = int(text.split()[0].replace(",", ""))
             except Exception as e:
                 print(e)
-                keyword_item["included_count"] = 0
-                keyword_item["status"] = 0
+                keyword_item["index_count"] = 0
 
-            if keyword_item["included_count"] < 4:
-                keyword_item["status"] = 0
-                if keyword_item.get("query_result"):
-                    keyword_item["query_result"]["err_msg"] = "谷歌收录小于4"
+            sorry = browser.click_button('image')
+            if sorry is None:
+                return
+
+            time.sleep(random.uniform(0.5, 1.0))
+            try:
+                text = browser.page.ele("css:#result-stats").text
+                text = text.replace("About", " ").replace("results", " ").strip()
+                img_search_count = int(text.split()[0].replace(",", ""))
+                if img_search_count :
+                    keyword_item["is_penalized"] = 2
                 else:
-                    keyword_item["query_result"] = {"err_msg": "谷歌收录小于4"}
-
-            title = keyword_item.get("domain_title")
-            is_jp = contains_japanese_kana(title)
-
-            if not is_jp:
-                html_content = browser.get_rendered_html()
-                is_jp = contains_japanese_kana(html_content)
-
-            if not is_jp:
-                go_to_page(browser, 5)
-                html_content = browser.get_rendered_html()
-                is_jp = contains_japanese_kana(html_content)
-
-            if not is_jp:
-                go_to_page(browser, 10)
-                html_content = browser.get_rendered_html()
-                is_jp = contains_japanese_kana(html_content)
-
-            if is_jp:
-                keyword_item["domain_type"] = 2
+                    keyword_item["is_penalized"] = 1
+            except Exception as e:
+                print(e)
 
             print(keyword_item)
 
@@ -682,10 +692,12 @@ def search_keyword_batch(params):
         success_count = 0
         fail_count = 0
         tasks = params.tasks.copy()
+
+
         while tasks:
             keyword_item_str = tasks.pop(0)
             keyword_item = keyword_item_str
-            logger.info(f"开始搜索: {keyword_item['domain']}")
+            logger.info(f"开始搜索: {keyword_item['domain_name']}")
             success = search_single_keyword(browser, keyword_item, params, first_run)
             first_run = False
             if success:

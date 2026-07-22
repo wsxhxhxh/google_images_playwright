@@ -1,7 +1,7 @@
 import time
 import aiohttp
 import asyncio
-from palt_api import get_task_info, send_result_batch, send_task_status, fetch_domain_by_task_id
+from palt_api import send_result_batch, fetch_domain_by_task_id
 from platform_api import TokenManager, ProxyPool
 from link114 import get_link_114_info
 from ruyipage_browser import search_keyword_batch
@@ -11,10 +11,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 
 import urllib3
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-def is_ok_site(domain):
 
+def is_ok_site(domain):
     headers = {
         'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
         'accept': '*/*',
@@ -40,12 +41,10 @@ def is_ok_site(domain):
         else:
             system_info = 'other'
 
-
         return resp.status_code, system_info
     except Exception as e:
         print(e)
         return 0, None
-
 
 
 def domain_work(domain_info):
@@ -80,13 +79,13 @@ class SearchTaskParams:
     app: ProxyPool
     atm: TokenManager
 
+
 def split_by_group(lst, group_size=5):
     for i in range(0, len(lst), group_size):
-        yield lst[i:i+group_size]
+        yield lst[i:i + group_size]
 
 
 def ruyi_work(params):
-    send_result_batch(params.atm, params.tasks)
     search_keyword_batch(params)
 
 
@@ -95,111 +94,49 @@ def main():
     app = ProxyPool()
     atm.refresh_token()
 
-
     while True:
-        task_info_list = get_task_info(atm)
-        print(task_info_list)
-
-        if not task_info_list:
-            print("not task sleep 30s")
-            time.sleep(30)
-            continue
-
-        task_info = task_info_list[0]
-        task_id = task_info["id"]
-
-        while True:
-            domain_info_list = fetch_domain_by_task_id(atm, task_id)
+        for i in range(1, 5):
+            domain_info_list = fetch_domain_by_task_id(i, 10)
             if not domain_info_list:
                 print("not domain break")
                 break
 
-            site_status_result = []
-            with ThreadPoolExecutor(max_workers=20) as executor:
-                futures = [
-                    executor.submit(domain_work, domain_info)
-                    for domain_info in domain_info_list
-                ]
+            search_da = [s for s in domain_info_list if not s["da"]]
+            no_search = [s for s in domain_info_list if s["da"]]
 
-                for future in as_completed(futures):
-                    try:
-                        result = future.result()
-                        site_status_result.append(result)
-                    except Exception as e:
-                        print("任务异常:", e)
+            print()
+            print("search_da", search_da)
+            print("no_search", no_search)
 
-            print("全部任务完成")
+            if search_da:
+                def run_async(coro):
+                    return asyncio.run(coro)
 
+                link_data = run_async(get_link_114_info([o["domain_name"] for o in search_da]))
 
-            # site_status_result = [
-            #     domain_work(domain_info)
-            #     for domain_info in domain_info_list
-            # ]
+                for res in search_da:
+                    domain = res["domain_name"]
+                    if link_data.get(domain):
+                        tmp = link_data[domain]
+                        res["da"] = tmp.get("moz_da")
 
-            status_not_200 = [s for s in site_status_result if s["status"] == 0]
-            status_200 = [s for s in site_status_result if s["status"] == 3]
+                no_search.extend(search_da)
 
+            dp_groups = split_by_group(no_search)
+            with ThreadPoolExecutor(max_workers=8) as executor:
 
-            if status_not_200:
-                send_result_batch(atm, status_not_200)
+                for wi, dp_group in enumerate(dp_groups):
+                    params = SearchTaskParams(
+                        worker_id=wi + 1,
+                        tasks=dp_group,
+                        proxies={},
+                        session=None,
+                        app=app,
+                        atm=atm,
+                        language_code='en-US',
+                    )
+                    executor.submit(ruyi_work, params)
 
-            if status_200:
-                send_result_batch(atm, status_200)
-
-            def run_async(coro):
-                return asyncio.run(coro)
-
-            link_data = run_async(
-                get_link_114_info([o["domain"] for o in status_200])
-            )
-
-            for res in status_200:
-                domain = res["domain"]
-                if link_data.get(domain):
-                    tmp = link_data[domain]
-                    res["da"] = tmp.get("moz_da")
-                    res["pa"] = tmp.get("moz_pa")
-                    res["domain_title"] = tmp.get("title")
-                    res["server_ip"] = tmp.get("ip")
-                    res["country"] = tmp.get("location")
-
-                    if not res.get("query_result"):
-                        res["query_result"] = {}
-
-                    res["query_result"]["create"] = tmp.get("create")
-
-                    if not tmp.get("title"):
-                        res["status"] = 0
-                        res["query_result"]["err_msg"] = "not title"
-
-                    if (not tmp.get("moz_da")) or (not tmp.get("moz_pa")):
-                        res["status"] = 0
-                        res["query_result"]["err_msg"] = "not da or not pa"
-                else:
-                    res["status"] = 0
-
-            no_da_pa = [s for s in status_200 if s["status"] == 0]
-            has_da_pa = [s for s in status_200 if s["status"] == 3]
-
-            if no_da_pa:
-                send_result_batch(atm, no_da_pa)
-
-            if has_da_pa:
-                dp_groups = split_by_group(has_da_pa)
-                with ThreadPoolExecutor(max_workers=8) as executor:
-
-                    for wi, dp_group in enumerate(dp_groups):
-                        params = SearchTaskParams(
-                            worker_id=wi + 1,
-                            tasks=dp_group,
-                            proxies={},
-                            session=None,
-                            app=app,
-                            atm=atm,
-                            language_code='en-US',
-                        )
-                        executor.submit(ruyi_work, params)
-        send_task_status(atm, task_id, 4)
 
 if __name__ == '__main__':
     main()
