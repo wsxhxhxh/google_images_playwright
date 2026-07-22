@@ -226,9 +226,8 @@ class RuyiPageBrowser:
             time.sleep(stagger)
 
         # 步骤2：将代理写入该 worker 专属的 user.js
-        if not Config.USE_PROXY:
-            _clear_proxy_from_user_dir(self._user_dir)
-            clean_proxy_prefs(self._user_dir)
+        _clear_proxy_from_user_dir(self._user_dir)
+        clean_proxy_prefs(self._user_dir)
 
         launch_args = self._build_proxy_launch_args()
         # 步骤3：launch() 启动独立 Firefox 进程
