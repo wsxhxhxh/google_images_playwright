@@ -406,7 +406,7 @@ class RuyiPageBrowser:
 
         # 只有第一次才打开 Google 图片首页
         self.goto(f"https://www.google.com/")
-        random_sleep(0.5, 1.0)
+        random_sleep(0.6, 1.2)
 
         current_url = self.page.url
         if "/sorry/" in current_url or "sorry" in current_url:
@@ -434,7 +434,7 @@ class RuyiPageBrowser:
 
         # 点击输入框
         textarea.click()
-        random_sleep(0.2, 0.4)
+        random_sleep(0.5, 1)
 
         # 清空输入框（最稳）
         try:
@@ -445,13 +445,13 @@ class RuyiPageBrowser:
                 let el = document.querySelector('textarea.gLFyf') || document.querySelector('input[name="q"]');
                 if (el) el.value = '';
             """)
-        random_sleep(0.1, 0.2)
+        random_sleep(0.2, 0.5)
         # 输入关键词（ruyipage原生）
         textarea.input(keyword)
-        random_sleep(0.1, 0.2)
+        random_sleep(0.2, 0.5)
         # 回车搜索
         self.page.actions.key_down(Keys.ENTER).key_up(Keys.ENTER).perform()
-        random_sleep(0.1, 0.2)
+        random_sleep(0.2, 0.5)
 
         # 搜索后再检查验证码
         current_url = self.page.url
@@ -460,7 +460,7 @@ class RuyiPageBrowser:
             return None
 
         self.slight_random_scroll()
-        random_sleep(0.5, 1.0)
+        random_sleep(0.7, 1.5)
 
         html = self.get_rendered_html()
 
