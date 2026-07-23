@@ -1,7 +1,7 @@
 import time
 import aiohttp
 import asyncio
-from palt_api import send_result_batch, fetch_domain_by_task_id
+from palt_api import fetch_domain_by_task_id
 from platform_api import TokenManager, ProxyPool
 from link114 import get_link_114_info
 from ruyipage_browser import search_keyword_batch

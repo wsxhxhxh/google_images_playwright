@@ -614,7 +614,6 @@ def search_single_keyword(browser: RuyiPageBrowser, keyword_item: dict, params, 
             print(keyword_item)
 
             logger.info(f"[Success] 完成关键词: {keyword}")
-            params.app.set_success(params.atm, params.proxies)
             return True
 
         except Exception as e:
