@@ -139,8 +139,9 @@ def get_task_info(atm):
     raise Exception("获取任务信息失败，已重试10次")
 
 
-def fetch_domain_by_task_id(page=1, page_size=500):
-    url = f"https://seosystem.top/prod/api/v1/shell-site-info/domains?page={page}&page_size={page_size}&token=7ee9a43ea2d8c11268dc95e2e298a183"
+def fetch_domain_by_task_id(atm, page=1, page_size=500):
+    token = atm.get_token()
+    url = f"https://seosystem.top/prod/api/v1/shell-site-info/domains?page={page}&page_size={page_size}&token={token}"
     headers = {
         "User-Agent": "Apifox/1.0.0 (https://apifox.com)",
         "Content-Type": "application/json",
@@ -148,6 +149,7 @@ def fetch_domain_by_task_id(page=1, page_size=500):
         "Authorization": f"Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3NzAxNzI5NDMsIm5iZiI6MTc3MDE3Mjk0MywiZXhwIjoxNzcwNzc3NzQzLCJqdGkiOiIxIn0.AYlsEFbLYDrHsJv01BXWDoFYgtEujoqCNoS_H6ZHHYI"
     }
     for attempt in range(10):
+        data = ''
         try:
             resp = _request_text("GET", url, headers=headers, timeout=10)
             data = json.loads(resp)
@@ -156,6 +158,7 @@ def fetch_domain_by_task_id(page=1, page_size=500):
 
         except Exception as e:
             print(f"task获取域名信息失败 (尝试 {attempt + 1}): {e}")
+            print(data)
             time.sleep(3)
 
     raise Exception(f"task 获取任务信息失败，已重试10次")
@@ -174,15 +177,15 @@ def send_result_batch(items):
 
 
 if __name__ == '__main__':
-
-    send_result_batch([
-        {
-            "shell_id": 35,
-            "index_count": 0,
-            "is_penalized": 1,
-            "da": 5,
-            "hellowrd":1,
-            "id": 35
-        }
-    ])
-    print(fetch_domain_by_task_id())
+    atm = TokenManager()
+    # send_result_batch([
+    #     {
+    #         "shell_id": 35,
+    #         "index_count": 0,
+    #         "is_penalized": 1,
+    #         "da": 5,
+    #         "hellowrd":1,
+    #         "id": 35
+    #     }
+    # ])
+    print(fetch_domain_by_task_id(atm))

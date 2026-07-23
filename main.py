@@ -95,7 +95,7 @@ def main():
     atm.refresh_token()
 
     for i in range(1, 50):
-        domain_info_list = fetch_domain_by_task_id(i, 100)
+        domain_info_list = fetch_domain_by_task_id(atm, i, 100)
         if not domain_info_list:
             print("not domain break")
             break
