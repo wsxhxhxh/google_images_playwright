@@ -121,13 +121,26 @@ class ProxyPool:
             return _request_text(method, url, **kwargs)
 
     def refresh_pool(self):
-        if not Config.PROXY_URL:
-            self.pool = []
-            return
-        text = self.safe_request("GET", Config.PROXY_URL, timeout=10)
-        resp_json = json.loads(text)
-        logger.info(f"refresh local proxy pool, num: {len(resp_json)}")
-        self.pool = resp_json
+        # if not Config.PROXY_URL:
+        #     self.pool = []
+        #     return
+        # text = self.safe_request("GET", Config.PROXY_URL, timeout=10)
+        # resp_json = json.loads(text)
+        # logger.info(f"refresh local proxy pool, num: {len(resp_json)}")
+        # self.pool = resp_json
+        self.pool = [
+            {"id": 0, "ip": "05594e6e2f", "port": "c3uGYNj6@130.254.112.58:1081", "captcha_count": 0,
+             "captcha_total_count": 111},
+            {"id": 0, "ip": "05594e6e2f", "port": "c3uGYNj6@170.199.228.210:1081", "captcha_count": 0,
+             "captcha_total_count": 111},
+            {"id": 0, "ip": "05594e6e2f", "port": "c3uGYNj6@216.41.233.190:1081", "captcha_count": 0,
+             "captcha_total_count": 111},
+            {"id": 0, "ip": "05594e6e2f", "port": "c3uGYNj6@139.180.225.204:1081", "captcha_count": 0,
+             "captcha_total_count": 111},
+            {"id": 0, "ip": "05594e6e2f", "port": "c3uGYNj6@216.213.24.211:1081", "captcha_count": 0,
+             "captcha_total_count": 111},
+        ]
+
 
     def get_random_proxy(self):
         with self.lock:
